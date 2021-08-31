@@ -3,7 +3,7 @@ __all__ = (
 )
 
 class Client:
-    def __init__(self):
+    def __init__(self, intents):
         ...
 
     def connect(self, token):
