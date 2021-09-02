@@ -39,7 +39,7 @@ class IntFlags:
     def __init__(self, **kwargs: dict[str, bool]) -> None:
         self.value = 0 # start from all disabled
 
-        for k, v in kwargs:
+        for k, v in kwargs.items():
             if v:
                 try:
                     self.value |= self.FLAGS[k]
