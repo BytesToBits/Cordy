@@ -5,6 +5,7 @@ import json
 import sys
 from typing import TYPE_CHECKING, Optional
 from logging import getLogger
+import random
 
 import aiohttp
 from aiohttp import WSMsgType
@@ -46,9 +47,10 @@ class Client:
             s = None
             async def heartbeat(ws: ClientWebSocketResponse, interval: int):
                 while not ws.closed:
-                    await asyncio.sleep(interval / 1000 * 3/4)
-                    await ws.send_json({"op": 1, "s": s}, dumps=lambda d: json.dumps(d, separators=(',', ':')))
+                    logger.debug("----> %s", s)
+                    await ws.send_json({"op": 1, "d": s}, dumps=lambda d: json.dumps(d, separators=(',', ':')))
                     logger.debug("Sent Heartbeat")
+                    await asyncio.sleep(interval * random.random() / 1000)
 
             async with ses.ws_connect(url) as ws:
                 while True:
@@ -59,8 +61,8 @@ class Client:
                     logger.debug("Received msg: %s", msg.data)
                     if msg.type == WSMsgType.TEXT:
                         data = msg.json()
-                        s = data.get("s", None)
                         op = data["op"]
+                        s = data.get("s", None) or s
                         if data["op"] == 10:
                             await ws.send_json({
                                 "op": 2,
@@ -83,7 +85,6 @@ class Client:
                         logger.debug("Closing Gateway Websocket")
                         await ws.close()
                         break
-
 
     def disconnect(self) -> None:
         ...
