@@ -80,10 +80,9 @@ class Client:
                     elif msg.type == WSMsgType.ERROR:
                         raise Exception(msg)
                     elif msg.type in {WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED}:
-                        print("closing")
+                        logger.debug("Closing Gateway Websocket")
                         await ws.close()
                         break
-            print("out")
 
 
     def disconnect(self) -> None:
