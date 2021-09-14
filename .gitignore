@@ -158,6 +158,8 @@ pip-selfcheck.json
 
 ## Local Env-Specific ##
 .venv/
+# A file I use to prototype and quickly test code
+.sandbox.py
 
 ## IDE Settings ##
 .vs/

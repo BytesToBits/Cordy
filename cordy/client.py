@@ -1,28 +1,33 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, TYPE_CHECKING
+import json
+import sys
+from typing import TYPE_CHECKING, Optional
+from logging import getLogger
 
 import aiohttp
 from aiohttp import WSMsgType
 from yarl import URL
-import sys
 
 from .http import Route
+from .models import Intents
 
 if TYPE_CHECKING:
     from aiohttp.client_ws import ClientWebSocketResponse
-
-    from .models import Intents
 
 __all__ = (
     'Client'
 )
 
+logger = getLogger("cordy.client")
 
 class Client:
-    def __init__(self, intents: Optional[Intents]):
-        self.intents = intents
+    def __init__(self, intents: Optional[Intents] = None):
+        if intents is None:
+            self.intents = Intents.default()
+        else:
+            self.intents = intents
 
     async def connect(self, token: str) -> None:
         headers: dict[str, str] = {}
@@ -31,24 +36,32 @@ class Client:
         headers["Authorization"] = "Bot " + token
         headers["User-Agent"] = "Cordy (https://github.com/BytesToBits/Cordy, 0.1.0)"
 
-        endp = Route("GET", "/gateway")()
-        url = URL((await (await aiohttp.request(endp.method, endp.url)).json())["url"])
-        url %= {"v": 9, "encoding": "json"}
-
-        s = None
-        async def heartbeat(ws: ClientWebSocketResponse, interval: int):
-            while not ws.closed:
-                ws.send_json({"op": 1, "s": s})
-                await asyncio.sleep(interval/1000)
-
         async with aiohttp.ClientSession() as ses:
+
+            endp = Route("GET", "/gateway").with_params()
+            async with ses.request(endp.method, endp.url) as resp:
+                url = URL((await resp.json(encoding="utf-8"))["url"])
+                url %= {"v": 9, "encoding": "json"}
+
+            s = None
+            async def heartbeat(ws: ClientWebSocketResponse, interval: int):
+                while not ws.closed:
+                    await asyncio.sleep(interval / 1000 * 3/4)
+                    await ws.send_json({"op": 1, "s": s}, dumps=lambda d: json.dumps(d, separators=(',', ':')))
+                    logger.debug("Sent Heartbeat")
+
             async with ses.ws_connect(url) as ws:
-                async for msg in ws:
+                while True:
+                    msg = await ws.receive()
+                    if not msg.data:
+                        continue
+                    logger.debug("Received Message")
+                    logger.debug("Received msg: %s", msg.data)
                     if msg.type == WSMsgType.TEXT:
                         data = msg.json()
                         s = data.get("s", None)
+                        op = data["op"]
                         if data["op"] == 10:
-                            asyncio.create_task(heartbeat(ws, data["s"] - 100))
                             await ws.send_json({
                                 "op": 2,
                                 "d": {
@@ -61,11 +74,16 @@ class Client:
                                     "intents": self.intents.value
                                 }
                             })
-                        print(data)
-                    elif msg.type in {WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING}:
-                        await ws.close(code="1000")
+                            asyncio.create_task(heartbeat(ws, data["d"]["heartbeat_interval"]))
+                        elif op == 11:
+                            logger.debug("Heartbeat ACK")
                     elif msg.type == WSMsgType.ERROR:
                         raise Exception(msg)
+                    elif msg.type in {WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED}:
+                        print("closing")
+                        await ws.close()
+                        break
+            print("out")
 
 
     def disconnect(self) -> None:

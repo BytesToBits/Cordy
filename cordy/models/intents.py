@@ -159,13 +159,13 @@ class Intents(IntFlags):
             The Intents object
         """
         inst = cls()
-        inst.guild_presences = True
-        inst.guild_members = True
+        inst.presences = True
+        inst.members = True
         return inst
 
     @classmethod
     def default(cls) -> Intents:
-        """Create an Intents object with all intents excpet privileged enabled.
+        """Create an Intents object with all intents except privileged enabled.
 
         Returns
         -------
@@ -173,8 +173,8 @@ class Intents(IntFlags):
             The Intents object
         """
         inst = cls.all()
-        inst.guild_presences = False
-        inst.guild_members = False
+        inst.presences = False
+        inst.members = False
         return inst
 
     @classmethod
