@@ -19,7 +19,7 @@ class Endpoint:
 
     def __init__(self, route: Route, params: dict[str, str]) -> None:
         self.route = route
-        self.url = self.route.BASE / route.path.format_map(params).lstrip("/")
+        self.url = self.route.BASE / route.path.format_map(params)
 
     @property
     def method(self) -> str:
@@ -35,6 +35,7 @@ class Route:
     path: str
 
     def __new__(cls, method: str, path: str) -> Route:
+        path = path.lstrip("/")
         cache_bucket = method + ":" + path
         self = cls._CACHE.get(cache_bucket, None)
 
