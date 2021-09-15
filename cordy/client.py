@@ -11,6 +11,7 @@ import aiohttp
 from aiohttp import WSMsgType
 from yarl import URL
 
+from .events import Emitter, Publisher, Event
 from .http import Route
 from .models import Intents
 
@@ -29,6 +30,11 @@ class Client:
             self.intents = Intents.default()
         else:
             self.intents = intents
+
+        self.emitter = Emitter()
+        self.publisher = Publisher(None)
+        self.publisher.add(self.emitter)
+        self.loop = asyncio.get_event_loop()
 
     async def connect(self, token: str) -> None:
         headers: dict[str, str] = {}
@@ -61,6 +67,8 @@ class Client:
                     logger.debug("Received msg: %s", msg.data)
                     if msg.type == WSMsgType.TEXT:
                         data = msg.json()
+                        self.loop.create_task(self.emitter.emit(Event("on_socket_raw_receive", data)))
+
                         op = data["op"]
                         s = data.get("s", None) or s
                         if data["op"] == 10:
