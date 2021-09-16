@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from logging import getLogger
 import random
 
@@ -11,12 +11,13 @@ import aiohttp
 from aiohttp import WSMsgType
 from yarl import URL
 
-from .events import Emitter, Publisher, Event
+from .events import CheckFn, CoroFn, Emitter, Publisher, Event
 from .http import Route
 from .models import Intents
 
 if TYPE_CHECKING:
     from aiohttp.client_ws import ClientWebSocketResponse
+    from collections.abc import Coroutine
 
 __all__ = (
     'Client'
@@ -35,6 +36,21 @@ class Client:
         self.publisher = Publisher(None)
         self.publisher.add(self.emitter)
         self.loop = asyncio.get_event_loop()
+
+    def listen(self, event_name: str = None) -> Callable[[CoroFn], CoroFn]:
+        def deco(func: CoroFn):
+            self.publisher.subscribe(event_name or func.__name__.lower(), func)
+            return func
+        return deco
+
+    def add_listener(self, func: CoroFn, event_name: str = None) -> None:
+        return self.publisher.subscribe(event_name or func.__name__.lower(), func)
+
+    def remove_listener(self, func: CoroFn, event_name: str = None) -> None:
+        return self.publisher.unsubscribe(func, event_name)
+
+    def wait_for(self, event_name: str, timeout: int = None, check: CheckFn = None) -> Coroutine[Any, Any, tuple[Any, ...]]:
+        return self.publisher.wait_for(event_name, timeout, check)
 
     async def connect(self, token: str) -> None:
         headers: dict[str, str] = {}

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-from collections.abc import Coroutine
-from typing import Any, Callable, Optional, overload
+from inspect import iscoroutinefunction
+from typing import Any, Callable, Optional, overload, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 # +--------+                                       +---------+
 # |Emitter| --(_Subscription() event stream)-----> |Publisher| <--- (Event stream from other Emitter/Filter)
@@ -21,6 +23,7 @@ from typing import Any, Callable, Optional, overload
 #   Publisher ----(Observer pattern)--> Subcribers (aka Coroutine Funstions)
 
 CoroFn = Callable[..., Coroutine]
+CheckFn = Callable[..., bool]
 
 class Event:
     __slots__ = ("name", "args")
@@ -80,7 +83,7 @@ class _Subscription:
 
 class Publisher:
     def __init__(self, error_hdlr: Optional[Callable[[Exception], Coroutine]] = None) -> None:
-        self.waiters = dict[str, asyncio.Future]()
+        self.waiters = dict[str, set[tuple[asyncio.Future, Optional[CheckFn]]]]()
         self.listeners = dict[str, set[CoroFn]]()
         self.emitters = dict[Emitter, asyncio.Task]()
         self.loop = asyncio.get_event_loop()
@@ -97,7 +100,12 @@ class Publisher:
                     else:
                         raise err
         if event.name in self.waiters:
-            self.waiters[event.name].set_result(event.args)
+            for fut, check in self.waiters[event.name]:
+                if check is not None:
+                    if check(*event.args):
+                        fut.set_result(*event.args)
+                else:
+                    fut.result(*event.args)
 
     async def _notify_loop(self, emitter: Emitter) -> None:
         loop = self.loop
@@ -114,23 +122,23 @@ class Publisher:
         ...
 
     @overload
-    def subscribe(self, name: str) -> Callable[[CoroFn], CoroFn]:
+    def subscribe(self, event_name: str) -> Callable[[CoroFn], CoroFn]:
         ...
 
     @overload
-    def subscribe(self, name: str, func: CoroFn) -> None:
+    def subscribe(self, event_name: str, func: CoroFn) -> None:
         ...
 
-    def subscribe(self, name: Optional[str] = None, func: Optional[CoroFn] = None):
+    def subscribe(self, event_name: str = None, func: CoroFn = None):
         def decorator(fn: CoroFn) -> None:
-            if not inspect.iscoroutinefunction(fn):
+            if not iscoroutinefunction(fn):
                 raise TypeError(f"Expected a coroutine function got {type(fn)}.")
-            nonlocal name
-            if name is None:
-                name = fn.__name__
-            listeners = self.listeners.get(name, None)
+            nonlocal event_name
+            if event_name is None:
+                event_name = fn.__name__.lower()
+            listeners = self.listeners.get(event_name, None)
             if listeners is None:
-                self.listeners[name] = listeners = set()
+                self.listeners[event_name] = listeners = set()
             listeners.add(fn)
             return fn
 
@@ -139,12 +147,31 @@ class Publisher:
         else:
             decorator(func)
 
-    async def wait_for(self, event_name: str, timeout: Optional[int] = None) -> tuple[Any, ...]:
-        waiter = self.waiters.get(event_name, None)
-        if waiter is None:
-            self.waiters[event_name] = waiter = self.loop.create_future()
+    def unsubscribe(self, listener: CoroFn, event_name: str = None) -> None:
+        ev_listeners = self.listeners.get(event_name or listener.__name__.lower())
+        try:
+            if ev_listeners:
+                ev_listeners.remove(listener)
+        except KeyError:
+            return
 
-        return (await asyncio.wait_for(waiter, timeout=timeout))
+    async def wait_for(self, event_name: str, timeout: int = None, check: CheckFn = None) -> tuple[Any, ...]:
+        ev_waiters = self.waiters.get(event_name)
+        if ev_waiters is None:
+            self.waiters[event_name] = ev_waiters = set()
+
+        fut = self.loop.create_future()
+        pair = (fut, check)
+        ev_waiters.add(pair)
+
+        try:
+            ret = await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError as err:
+            raise err from None
+        else:
+            return ret
+        finally:
+            ev_waiters.discard(pair)
 
     def add(self, emitter: Emitter) -> None:
         task = self.emitters.get(emitter, None)
