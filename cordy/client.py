@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 from logging import getLogger
 import random
 
@@ -11,8 +11,10 @@ import aiohttp
 from aiohttp import WSMsgType
 from yarl import URL
 
+from cordy.auth import StrOrToken, Token
+
 from .events import CheckFn, CoroFn, Emitter, Publisher, Event
-from .http import Route
+from .http import HTTPSession, Route
 from .models import Intents
 
 if TYPE_CHECKING:
@@ -20,13 +22,13 @@ if TYPE_CHECKING:
     from collections.abc import Coroutine
 
 __all__ = (
-    'Client'
+    'Client',
 )
 
 logger = getLogger("cordy.client")
 
 class Client:
-    def __init__(self, intents: Optional[Intents] = None):
+    def __init__(self, token: StrOrToken, *, intents: Intents = None):
         if intents is None:
             self.intents = Intents.default()
         else:
@@ -36,6 +38,9 @@ class Client:
         self.publisher = Publisher(None)
         self.publisher.add(self.emitter)
         self.loop = asyncio.get_event_loop()
+
+        self.token = token if isinstance(token, Token) else Token(token, bot=True)
+        self.http = HTTPSession(aiohttp.ClientSession())
 
     def listen(self, event_name: str = None) -> Callable[[CoroFn], CoroFn]:
         def deco(func: CoroFn):
@@ -52,11 +57,10 @@ class Client:
     def wait_for(self, event_name: str, timeout: int = None, check: CheckFn = None) -> Coroutine[Any, Any, tuple[Any, ...]]:
         return self.publisher.wait_for(event_name, timeout, check)
 
-    async def connect(self, token: str) -> None:
+    async def connect(self) -> None:
         headers: dict[str, str] = {}
-        token = token.strip()
 
-        headers["Authorization"] = "Bot " + token
+        headers["Authorization"] = self.token.get_auth()
         headers["User-Agent"] = "Cordy (https://github.com/BytesToBits/Cordy, 0.1.0)"
 
         async with aiohttp.ClientSession() as ses:
@@ -91,7 +95,7 @@ class Client:
                             await ws.send_json({
                                 "op": 2,
                                 "d": {
-                                    "token": token,
+                                    "token": self.token.token,
                                     "properties": {
                                         "$os": sys.platform,
                                         "$browser": "cordy",
