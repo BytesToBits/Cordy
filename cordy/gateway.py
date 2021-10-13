@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio.events import set_event_loop_policy
 import logging
 from time import perf_counter
 import zlib
@@ -128,12 +129,34 @@ class GateWay:
         self._ack_fut = None
         self._tracker = LatencyTracker()
         self._beater = None
+        self._resume = True
+        self._listener = None
 
-    async def connect(self, url: URL):
+    @property
+    def resumable(self) -> bool:
+        return self._resume and bool(self._session_id)
+
+    async def connect(self, url: URL) -> None:
+        if self._closed:
+            raise ValueError("GateWay instance already closed")
+
         url %= {"v": 9, "encoding": "json"}
 
         self.ws = await self.session.ws_connect(url)
         self._url = url
+
+        if self._listener is not None:
+            if self._listener.done():
+                self._listener._log_traceback = False
+            else:
+                self._listener.cancel()
+
+                self._listener = self.loop.create_task(self.listen())
+
+        if self.resumable:
+            await self.resume()
+        else:
+            await self.identify()
 
     async def listen(self):
         while not self._closed:
@@ -148,7 +171,6 @@ class GateWay:
                 elif msg.type == WSMsgType.ERROR:
                     raise Exception(msg)
                 elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
-                    await self.ws.close()
                     logger.debug("Connection closed: %s", msg)
                     break
 
@@ -167,16 +189,27 @@ class GateWay:
 
     async def close(self):
         self._closed = True
-        await self.ws.close()
+        await self.disconnect(code=1001)
 
     async def hello(self, msg: Msg):
         self._interval: float = msg["d"]["heartbeat_interval"] / 1000
 
-        self._beater = self.loop.create_task(self.heartbeat)
-        await self.identify()
+        if self._beater is not None:
+            if self._beater.done():
+                self._beater._log_traceback = False
+            else:
+                self._beater.cancel()
 
-    async def heartbeat(self) -> None:
-        while True:
+        self._beater = self.loop.create_task(self.heartbeater)
+
+    async def heartbeat(self, _: Msg):
+        self.send({
+            "op": OpCodes.HEARTBEAT.value,
+            "d": self._seq
+        })
+
+    async def heartbeater(self) -> None:
+        while not self.ws.closed:
             self._ack_fut = self.loop.create_future()
             await self.send({
                 "op": OpCodes.HEARTBEAT.value,
@@ -186,7 +219,7 @@ class GateWay:
             try:
                 await asyncio.wait_for(self._ack_fut, timeout=self._interval)
             except asyncio.TimeoutError:
-                self.ws.close(code=4000, message=b"zombied gateway connection")
+                self.disconnect(message=b"zombied gateway connection")
                 self._reconnect = True
                 break
             else:
@@ -207,7 +240,7 @@ class GateWay:
             # either way ignore this
             pass
 
-    async def identify(self):
+    async def identify(self) -> None:
         data = {
             "op": 2,
             "d": {
@@ -220,7 +253,7 @@ class GateWay:
 
         await self.send(data)
 
-    async def resume(self):
+    async def resume(self) -> None:
         await self.send({
             "op": 6,
             "d": {
@@ -228,6 +261,31 @@ class GateWay:
                 "session_id": self._session_id,
                 "seq": self._seq
         }})
+
+    async def invalid_session(self, msg: Msg) -> None:
+        self._resume = msg["d"]
+        self._reconnect = False # exit listener
+
+        self._seq = None
+        self._session_id = ""
+
+        await self.disconnect(code=4000 if self._resume else 1000)
+        await asyncio.sleep(1.0) # sleep for  1-5 seconds
+
+        await self.connect() # reconnect / resume
+
+    async def reconnect(self, _: Msg) -> None:
+        self._reconnect = True
+        self._resume = True
+
+        await self.disconnect(message=b"Reconnect request")
+
+    async def dispatch(self, msg: Msg) -> None:
+        ...
+
+    async def disconnect(self, code: int = 4000, message: bytes = b"") -> None:
+        await self.ws.close(code=code, message=message)
+        self._tracker.reset()
 
     async def send(self, data: Msg) -> None:
         # TODO: RateLimit, Coming Soon :tm:

@@ -94,6 +94,9 @@ class _Subscription:
     def __init__(self, fut: asyncio.Future) -> None:
         self.fut = fut
 
+    def __aiter__(self):
+        return self
+
     async def __anext__(self) -> Event:
         event, self.fut = await self.fut
         return event
