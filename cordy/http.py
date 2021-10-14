@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from aiohttp import ClientSession
 from yarl import URL
 
+from . import util
+
 if TYPE_CHECKING:
     from .client import Client
+    from .util import Msg
 
 __all__ = (
     "Route",
@@ -53,6 +56,13 @@ class Route:
 
         return self
 
+    @property
+    def url(self) -> URL | None:
+        if "{" in self.path:
+            # quick parameter check
+            return None
+        return self.BASE / self.path
+
     def with_params(self, **params) -> Endpoint:
         return Endpoint(self, params)
 
@@ -70,17 +80,30 @@ class HTTPSession:
             "User-Agent": "Cordy (https://github.com/BytesToBits/Cordy, 0.1.0)"
         }
 
-    async def ws_connect(self, url: URL, **kwargs):
-        kwargs.setdefault("headers", self.headers)
-        kwargs["headers"].update(self.headers)
+    def _update_kw(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        if kwargs.get("headers"):
+            kwargs["headers"].update(self.headers)
+        else:
+            kwargs["headers"] = self.headers
 
-        return await self.session.ws_connect(url, **kwargs)
+        return kwargs
 
-    async def request(self, endp: Endpoint, **kwargs):
-        kwargs.setdefault("headers", self.headers)
-        kwargs["headers"].update(self.headers)
+    def ws_connect(self, url: URL, **kwargs):
+        return self.session.ws_connect(url, **self._update_kw(kwargs))
 
-        return await self.session.request(endp.method, endp.url, **kwargs)
+    def request(self, endp: Endpoint | Route, **kwargs):
+        if endp.url is None:
+            raise ValueError(f"Used {type(endp)} instance with unformatted url")
+        return self.session.request(endp.method, endp.url, **self._update_kw(kwargs))
+
+    async def get_gateway(self) -> URL:
+        async with self.request(Route("GET", "/gateway")) as res:
+            return URL(await res.json(loads=util.loads)["url"])
+
+    async def get_gateway_bot(self) -> Msg:
+        async with self.request(Route("GET", "/gateway/bot")) as resp:
+            ret: Msg = await resp.json(loads=util.loads)
+            return ret
 
     async def close(self):
         return await self.session.close()

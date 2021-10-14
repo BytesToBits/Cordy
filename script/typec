@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+
+# I have no idea wether this works, since I dont have linux machines rn
+import subprocess
+import sys
+
+
+
+if __name__ == "__main__":
+    import pathlib
+    pt = pathlib.Path(__file__).parents[1] / ".mypy_cache"
+    cmd = subprocess.run(["mypy", "-p", "cordy", "--cache_dir", str(pt)])
+    sys.exit(cmd.returncode)

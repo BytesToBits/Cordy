@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-from asyncio.events import set_event_loop_policy
 import logging
-from time import perf_counter
 import zlib
 from enum import IntEnum
+from json import load
 from sys import platform
-from typing import TYPE_CHECKING, Any, ClassVar
+from time import perf_counter
+from typing import (TYPE_CHECKING, Any, ClassVar, Protocol, Sequence, TypeVar,
+                    runtime_checkable)
 
+import aiohttp
 from aiohttp import WSMsgType
 from aiohttp.client_ws import ClientWebSocketResponse
 from yarl import URL
 
 from . import util
+from .http import Route
 
 if TYPE_CHECKING:
     from .client import Client
+    from .events import Emitter
+    from .util import Msg
 
 logger = logging.getLogger(__name__)
 # TODO: ETF, Pyrlang/Term, discord/erlpack
@@ -25,14 +30,14 @@ __all__ = (
     "GateWay",
 )
 
-Msg = dict[str, Any]
+
 
 class LatencyTracker:
     def __init__(self) -> None:
         self._num_checks = 0
         self._last_latency = 0.0
         self.avg_latency = 0.0
-        self._last_ten = []
+        self._last_ten: list[float] = []
 
     @property
     def latency(self) -> float:
@@ -72,7 +77,7 @@ class OpCodes(IntEnum):
     @classmethod
     def get_enum(cls, val: int) -> OpCodes | None:
         try:
-            ret = cls._value2member_map_[val]
+            ret: OpCodes = cls._value2member_map_[val] # type: ignore[index]
         except KeyError:
             logger.info("Invalid OpCodes enum requested: %s", val)
             return None
@@ -102,6 +107,8 @@ class Inflator: # for zlib
             self.buf.clear()
             return msg
 
+        return None
+
 class GateWay:
     _PROPS: ClassVar[dict[str, str]] = {
         "$os": platform,
@@ -109,15 +116,16 @@ class GateWay:
         "$device": "cordy"
     }
 
-    ws: ClientWebSocketResponse
+    ws: ClientWebSocketResponse | None
 
-    def __init__(self, client: Client, *, inflator: Inflator = None) -> None:
+    def __init__(self, client: Client, *, inflator: Inflator = None, shard_id: int = 0) -> None:
         self.session = client.http
         self.token = client.token
         self.intents = client.intents
         self.inflator = inflator or Inflator()
         self.ws = None
         self.client = client
+        self.shard_id = shard_id
 
         self.loop = asyncio.get_event_loop()
         self._closed = False
@@ -136,22 +144,33 @@ class GateWay:
     def resumable(self) -> bool:
         return self._resume and bool(self._session_id)
 
-    async def connect(self, url: URL) -> None:
+    async def connect(self, url: URL = None) -> None:
         if self._closed:
             raise ValueError("GateWay instance already closed")
 
+        if self.ws and not self.ws.closed:
+            self.disconnect(b"Reconnecting")
+
+        url = url or self._url or await self._get_gateway()
         url %= {"v": 9, "encoding": "json"}
 
-        self.ws = await self.session.ws_connect(url)
+        try:
+            self.ws = await self.session.ws_connect(url)
+        except aiohttp.ServerTimeoutError:
+            logger.warning("Shard %s | Gateway websocket connection timed-out", self.shard_id)
+            raise
+        except aiohttp.WSServerHandshakeError:
+            logger.warning("Shard %s | Gateway websocket handshake failed.", self.shard_id)
+            raise
+
         self._url = url
 
-        if self._listener is not None:
-            if self._listener.done():
-                self._listener._log_traceback = False
-            else:
-                self._listener.cancel()
+        if self._listener and self._listener.done():
+            self._listener._log_traceback = False
+        else:
+            self._listener.cancel()
 
-                self._listener = self.loop.create_task(self.listen())
+            self._listener = self.loop.create_task(self.listen())
 
         if self.resumable:
             await self.resume()
@@ -162,6 +181,7 @@ class GateWay:
         while not self._closed:
             while not self.ws.closed:
                 msg = await self.ws.receive()
+
                 if msg.type == WSMsgType.TEXT:
                     data = msg.json(loads=util.loads)
                 elif msg.type == WSMsgType.BINARY:
@@ -177,15 +197,20 @@ class GateWay:
                 self.loop.create_task(self.process_message(data))
 
             if self._reconnect:
-                # TODO: RESUMING
                 await self.connect(self._url)
                 self._reconnect = False
             else:
                 break
 
     async def process_message(self, msg: Msg) -> None:
-        op = msg.get("op") # 0,1,7,9,10,11
+        op = OpCodes.get_enum(msg.get("op")) # 0,1,7,9,10,11
         self._seq: int = msg.get("s") or self._seq
+
+        if op is None:
+            logger.warning("Gateway sent payload with unknown op code %s", msg.get("op"))
+            return
+
+        await getattr(self, op.name.lower())(msg)
 
     async def close(self):
         self._closed = True
@@ -247,7 +272,8 @@ class GateWay:
                 "token": self.token.get_auth(),
                 "properties": self._PROPS,
                 "intents": self.intents.value,
-                "compress": True
+                "compress": True,
+                "shard": (self.shard_id, self.client.num_shards)
             }
         }
 
@@ -272,7 +298,8 @@ class GateWay:
         await self.disconnect(code=4000 if self._resume else 1000)
         await asyncio.sleep(1.0) # sleep for  1-5 seconds
 
-        await self.connect() # reconnect / resume
+        if not self._listener or self._listener.done():
+            await self.connect(self._url)
 
     async def reconnect(self, _: Msg) -> None:
         self._reconnect = True
@@ -280,8 +307,16 @@ class GateWay:
 
         await self.disconnect(message=b"Reconnect request")
 
+        if not self._listener or self._listener.done():
+            await self.connect(self._url)
+
     async def dispatch(self, msg: Msg) -> None:
-        ...
+        event: str = msg.get("t")
+        data: Msg = msg.get("d")
+
+        if event == "READY":
+            self._session_id: str = data.get("session_id")
+            self._resume = True
 
     async def disconnect(self, code: int = 4000, message: bytes = b"") -> None:
         await self.ws.close(code=code, message=message)
@@ -292,5 +327,76 @@ class GateWay:
         return await self.ws.send_str(util.dumps(data))
 
 class Shard:
-    connection: GateWay
-    ...
+    gateway: GateWay
+    emitter: Emitter
+    id: int
+
+    def __init__(self, client: Client, id_: int = 0) -> None:
+        self.id = id_
+        self.client = client
+        self.gateway = GateWay(client, shard_id=id_)
+
+    def launch(self, url: URL | None) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError as err:
+            import os
+            from threading import get_ident
+            raise Exception(f"Thread {get_ident()}, PID {os.getpid()}. No running event loop!") from err
+
+        loop.create_task(self.gateway.connect(url))
+
+S = TypeVar("S")
+
+@runtime_checkable
+class BaseSharder(Protocol[S]):
+    client: Client
+    _url: URL | None
+
+    def __init__(self, client: Client) -> None:
+        self.client = client
+        self._url = None
+
+    @property
+    def num_shards(self):
+        return self.client.num_shards
+
+    @property
+    def shard_ids(self):
+        return self.client.shard_ids
+
+    async def create_shards(self) -> Sequence[S]:
+        ...
+
+    async def launch_shards(self, shards: Sequence[S]) -> None:
+        ...
+
+    def shard() -> None:
+        ...
+
+
+class Sharder(BaseSharder[Shard]):
+    async def create_shards(self) -> list[Shard]:
+        if self.num_shards is None:
+            # don't cache the session limit
+            # coz delay till launch is unknown
+            data = await self.client.http.get_gateway_bot()
+            self._url = URL(data["url"])
+            self.client.num_shards = data["shards"]
+            self.client.shard_ids = self.shard_ids or set(range(data["shards"]))
+
+        shards = []
+
+        for id_ in self.shard_ids:
+            shards.append(Shard(self.client, id_))
+
+        return shards
+
+    async def launch_shards(self, shards: Sequence[Shard]) -> None:
+        url = self._url
+
+        for shard in shards:
+            shard.launch(url)
+
+    async def shard(self):
+        return await self.launch_shards(await self.create_shards(self.client))

@@ -24,7 +24,7 @@ class Flag:
     def __init__(self, value: int):
         self.value = value
 
-    def __get__(self, inst, _) -> bool:
+    def __get__(self, inst: IntFlags, _) -> bool:
         return (inst.value & self.value) == self.value
 
     def __set__(self, inst, value: AnyBitLike) -> None:

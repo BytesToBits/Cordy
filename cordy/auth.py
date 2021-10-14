@@ -29,6 +29,6 @@ class Token:
         except ValueError as err:
             raise ValueError("Invalid header auth value received.") from err
 
-        cls(token, type_.lower() == cls.BOT_PREFIX.lower())
+        return cls(token, type_.lower() == cls.BOT_PREFIX.lower())
 
 StrOrToken = Union[str, Token]

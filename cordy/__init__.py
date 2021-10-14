@@ -1,5 +1,8 @@
+# type: ignore[name-defined]
+
 from importlib.metadata import version
 
+# Inspired by asyncio source
 from .auth import *
 from .client import *
 from .errors import *

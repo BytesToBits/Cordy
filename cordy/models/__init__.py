@@ -1,3 +1,5 @@
+# type: ignore[name-defined]
+
 from .intents import *
 
 __all__ = (

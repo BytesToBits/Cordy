@@ -2,45 +2,53 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
-from typing import TYPE_CHECKING, Any, Callable
-from logging import getLogger
 import random
+import sys
+from logging import getLogger
+from typing import TYPE_CHECKING, Any, Callable, Type
 
 import aiohttp
 from aiohttp import WSMsgType
 from yarl import URL
 
-from cordy.auth import StrOrToken, Token
-
-from .events import CheckFn, CoroFn, Emitter, Publisher, Event
+from .auth import Token
+from .events import Emitter, Event, Publisher
 from .http import HTTPSession, Route
 from .models import Intents
+from .gateway import Sharder
 
 if TYPE_CHECKING:
-    from aiohttp.client_ws import ClientWebSocketResponse
     from collections.abc import Coroutine
 
+    from aiohttp.client_ws import ClientWebSocketResponse
+
+    from .auth import StrOrToken
+    from .events import CheckFn, CoroFn
+    from .gateway import BaseSharder
+
 __all__ = (
-    'Client',
+    "Client",
 )
 
 logger = getLogger("cordy.client")
 
 class Client:
-    def __init__(self, token: StrOrToken, *, intents: Intents = None):
-        if intents is None:
-            self.intents = Intents.default()
-        else:
-            self.intents = intents
+    num_shards: int | None
+    shard_ids: set[int] | None
+
+    def __init__(self, token: StrOrToken, *, intents: Intents = None, sharder_cls: Type[BaseSharder] = Sharder):
+        self.intents = intents or Intents.default()
+        self.sharder = sharder_cls()
 
         self.emitter = Emitter()
         self.publisher = Publisher(None)
         self.publisher.add(self.emitter)
+        self.http = HTTPSession(aiohttp.ClientSession())
         self.loop = asyncio.get_event_loop()
 
         self.token = token if isinstance(token, Token) else Token(token, bot=True)
-        self.http = HTTPSession(aiohttp.ClientSession())
+        self.num_shards = None
+        self.shard_ids = None
 
     def listen(self, event_name: str = None) -> Callable[[CoroFn], CoroFn]:
         def deco(func: CoroFn):
@@ -115,7 +123,10 @@ class Client:
                         break
 
     def disconnect(self) -> None:
+        # disconnect gateway 1000
         ...
 
     def reconnect(self) -> None:
+        # disconnect gateway not 1001/1000
+        # connect again, attempt resume.
         ...
