@@ -1,7 +1,5 @@
-# type: ignore[name-defined]
-
-from .intents import *
+from .intents import Intents
 
 __all__ = (
-    *intents.__all__,
+    "Intents",
 )

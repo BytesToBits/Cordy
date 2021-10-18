@@ -8,7 +8,7 @@ from yarl import URL
 from . import util
 
 if TYPE_CHECKING:
-    from .client import Client
+    from .auth import Token
     from .util import Msg
 
 __all__ = (
@@ -72,11 +72,11 @@ class Route:
 class HTTPSession:
     headers: dict[str, str]
 
-    def __init__(self, session: ClientSession, client: Client) -> None:
+    def __init__(self, session: ClientSession, token: Token) -> None:
         self.session = session
 
         self.headers = {
-            "Authorization": client.token.get_auth(),
+            "Authorization": token.get_auth(),
             "User-Agent": "Cordy (https://github.com/BytesToBits/Cordy, 0.1.0)"
         }
 

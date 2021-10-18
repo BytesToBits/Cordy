@@ -38,17 +38,19 @@ class Client:
 
     def __init__(self, token: StrOrToken, *, intents: Intents = None, sharder_cls: Type[BaseSharder] = Sharder):
         self.intents = intents or Intents.default()
-        self.sharder = sharder_cls()
+        self.token = token if isinstance(token, Token) else Token(token, bot=True)
 
         self.emitter = Emitter()
         self.publisher = Publisher(None)
         self.publisher.add(self.emitter)
-        self.http = HTTPSession(aiohttp.ClientSession())
+        self.http = HTTPSession(aiohttp.ClientSession(), self.token)
         self.loop = asyncio.get_event_loop()
 
-        self.token = token if isinstance(token, Token) else Token(token, bot=True)
         self.num_shards = None
         self.shard_ids = None
+
+        # May manipulate client attributes
+        self.sharder = sharder_cls(self)
 
     def listen(self, event_name: str = None) -> Callable[[CoroFn], CoroFn]:
         def deco(func: CoroFn):

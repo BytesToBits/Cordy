@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio.futures import Future
 import logging
 import zlib
 from enum import IntEnum
 from json import load
 from sys import platform
 from time import perf_counter
-from typing import (TYPE_CHECKING, Any, ClassVar, Protocol, Sequence, TypeVar,
+from typing import (TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Sequence, TypeVar,
                     runtime_checkable)
 
 import aiohttp
@@ -16,12 +17,15 @@ from aiohttp.client_ws import ClientWebSocketResponse
 from yarl import URL
 
 from . import util
-from .http import Route
 
 if TYPE_CHECKING:
+    from asyncio.tasks import Task
+    from typing import TypedDict
+
     from .client import Client
     from .events import Emitter
     from .util import Msg
+    from .types import Payload, Dispatch
 
 logger = logging.getLogger(__name__)
 # TODO: ETF, Pyrlang/Term, discord/erlpack
@@ -29,8 +33,6 @@ logger = logging.getLogger(__name__)
 __all__ = (
     "GateWay",
 )
-
-
 
 class LatencyTracker:
     def __init__(self) -> None:
@@ -109,6 +111,7 @@ class Inflator: # for zlib
 
         return None
 
+# TODO: Consider Async initialisation to remove checks
 class GateWay:
     _PROPS: ClassVar[dict[str, str]] = {
         "$os": platform,
@@ -117,6 +120,13 @@ class GateWay:
     }
 
     ws: ClientWebSocketResponse | None
+    _url: URL | None
+    _listener: Task[None] | None
+    _beater: Task[None] | None
+    _reconnect: bool
+    _seq: int | None
+    _interval: float | None
+    _ack_fut: Future | None
 
     def __init__(self, client: Client, *, inflator: Inflator = None, shard_id: int = 0) -> None:
         self.session = client.http
@@ -139,6 +149,7 @@ class GateWay:
         self._beater = None
         self._resume = True
         self._listener = None
+        self._reconnect = True
 
     @property
     def resumable(self) -> bool:
@@ -149,9 +160,9 @@ class GateWay:
             raise ValueError("GateWay instance already closed")
 
         if self.ws and not self.ws.closed:
-            self.disconnect(b"Reconnecting")
+            self.disconnect(message=b"Reconnecting")
 
-        url = url or self._url or await self._get_gateway()
+        url = url or self._url or await self.session.get_gateway()
         url %= {"v": 9, "encoding": "json"}
 
         try:
@@ -164,13 +175,12 @@ class GateWay:
             raise
 
         self._url = url
+        self._reconnect = True
 
-        if self._listener and self._listener.done():
-            self._listener._log_traceback = False
-        else:
+        if self._listener:
             self._listener.cancel()
 
-            self._listener = self.loop.create_task(self.listen())
+        self._listener = self.loop.create_task(self.listen())
 
         if self.resumable:
             await self.resume()
@@ -178,33 +188,36 @@ class GateWay:
             await self.identify()
 
     async def listen(self):
+        if self.ws is None:
+            return
+
         while not self._closed:
             while not self.ws.closed:
                 msg = await self.ws.receive()
 
                 if msg.type == WSMsgType.TEXT:
-                    data = msg.json(loads=util.loads)
+                    data: Payload = msg.json(loads=util.loads)
                 elif msg.type == WSMsgType.BINARY:
-                    data = self.inflator(msg.data)
-                    if data:
-                        data = util.loads(msg.data)
+                    if (_json := self.inflator(msg.data)):
+                        data = util.loads(_json)
                 elif msg.type == WSMsgType.ERROR:
                     raise Exception(msg)
                 elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
                     logger.debug("Connection closed: %s", msg)
                     break
+                else:
+                    continue # ensure data is bound
 
                 self.loop.create_task(self.process_message(data))
 
             if self._reconnect:
                 await self.connect(self._url)
-                self._reconnect = False
             else:
                 break
 
-    async def process_message(self, msg: Msg) -> None:
-        op = OpCodes.get_enum(msg.get("op")) # 0,1,7,9,10,11
-        self._seq: int = msg.get("s") or self._seq
+    async def process_message(self, msg: Payload) -> None:
+        op = OpCodes.get_enum(msg["op"]) # 0,1,7,9,10,11
+        self._seq = msg.get("s") or self._seq
 
         if op is None:
             logger.warning("Gateway sent payload with unknown op code %s", msg.get("op"))
@@ -217,15 +230,12 @@ class GateWay:
         await self.disconnect(code=1001)
 
     async def hello(self, msg: Msg):
-        self._interval: float = msg["d"]["heartbeat_interval"] / 1000
+        self._interval = msg["d"]["heartbeat_interval"] / 1000
 
         if self._beater is not None:
-            if self._beater.done():
-                self._beater._log_traceback = False
-            else:
-                self._beater.cancel()
+            self._beater.cancel()
 
-        self._beater = self.loop.create_task(self.heartbeater)
+        self._beater = self.loop.create_task(self.heartbeater())
 
     async def heartbeat(self, _: Msg):
         self.send({
@@ -234,6 +244,9 @@ class GateWay:
         })
 
     async def heartbeater(self) -> None:
+        if self.ws is None or self._interval is None:
+            return
+
         while not self.ws.closed:
             self._ack_fut = self.loop.create_future()
             await self.send({
@@ -301,7 +314,7 @@ class GateWay:
         if not self._listener or self._listener.done():
             await self.connect(self._url)
 
-    async def reconnect(self, _: Msg) -> None:
+    async def reconnect(self, _: Payload) -> None:
         self._reconnect = True
         self._resume = True
 
@@ -310,21 +323,28 @@ class GateWay:
         if not self._listener or self._listener.done():
             await self.connect(self._url)
 
-    async def dispatch(self, msg: Msg) -> None:
-        event: str = msg.get("t")
-        data: Msg = msg.get("d")
+    async def dispatch(self, msg: Dispatch) -> None:
+        event: str = msg["t"]
+        data = msg["d"]
+
+        if not data:
+            return
 
         if event == "READY":
-            self._session_id: str = data.get("session_id")
+            self._session_id = data["session_id"]
             self._resume = True
 
-    async def disconnect(self, code: int = 4000, message: bytes = b"") -> None:
+    async def disconnect(self, *, code: int = 4000, message: bytes = b"") -> None:
+        if not self.ws:
+            return
+
         await self.ws.close(code=code, message=message)
         self._tracker.reset()
 
     async def send(self, data: Msg) -> None:
         # TODO: RateLimit, Coming Soon :tm:
-        return await self.ws.send_str(util.dumps(data))
+        if self.ws:
+            await self.ws.send_str(util.dumps(data))
 
 class Shard:
     gateway: GateWay
@@ -355,7 +375,7 @@ class BaseSharder(Protocol[S]):
 
     def __init__(self, client: Client) -> None:
         self.client = client
-        self._url = None
+        self._url: URL | None = None
 
     @property
     def num_shards(self):
@@ -371,7 +391,7 @@ class BaseSharder(Protocol[S]):
     async def launch_shards(self, shards: Sequence[S]) -> None:
         ...
 
-    def shard() -> None:
+    def shard(self) -> None:
         ...
 
 
@@ -399,4 +419,4 @@ class Sharder(BaseSharder[Shard]):
             shard.launch(url)
 
     async def shard(self):
-        return await self.launch_shards(await self.create_shards(self.client))
+        return await self.launch_shards(await self.create_shards())

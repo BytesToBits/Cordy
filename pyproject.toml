@@ -11,6 +11,7 @@ Sphinx = {version = "^4.1.2", optional = true}
 furo = {version = "^2021.7.5-beta.38", optional = true}
 yarl = "^1.6.3"
 aiohttp = "^3.7.4"
+typing-extensions = "^3.10.0"
 
 [tool.poetry.dev-dependencies]
 mypy = "^0.910"

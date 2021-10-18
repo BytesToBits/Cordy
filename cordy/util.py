@@ -5,5 +5,5 @@ from typing import Any, Callable, Union
 Json = Union[dict[str, Any], list[Union[dict[str, Any], Any]]]
 Msg = dict[str, Any]
 
-loads: Callable[[str], Json] = json.loads
+loads: Callable[[str], Any] = json.loads # Any allows custom type without cast
 dumps: Callable[[Json], str] = json.dumps
