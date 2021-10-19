@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from __future__ import annotations
 
 import subprocess as sbp
@@ -13,7 +15,7 @@ DEFAULT_PROMPT = "Cordy-Env"
 class CordyEnvBuilder(venv.EnvBuilder):
     def __init__(self, system_site_packages: bool = False, clear: bool = False,
                  symlinks: bool = False, upgrade: bool = False,
-                 prompt: str | None = DEFAULT_PROMPT, upgrade_deps: bool = False) -> None:
+                 prompt: str | None = None, upgrade_deps: bool = False) -> None:
 
         if sys.version_info < (3, 9):
             raise Exception(
@@ -24,20 +26,34 @@ class CordyEnvBuilder(venv.EnvBuilder):
         super().__init__(
             system_site_packages=system_site_packages,
             clear=clear, symlinks=symlinks, upgrade=upgrade,
-            with_pip=True, prompt=prompt,
+            with_pip=True, prompt=prompt or DEFAULT_PROMPT,
             upgrade_deps=upgrade_deps
         )
 
     def setup_project_deps(self, context: SimpleNamespace) -> None:
-        cmd = [context.env_exec_cmd, "-m"]
+        cmd = [context.env_exe, "-m"]
+
+        sys.stdout.write("Installing Poetry...\n")
+        sys.stdout.write("=========\n")
 
         sbp.run(cmd + "pip install poetry --upgrade".split(), stderr=sbp.STDOUT)
-        sys.stdout.write("Installing Cordy dependecies ...\n")
+        sys.stdout.write("=========\n")
+        sys.stdout.write("Installing Cordy dependecies...\n")
+        sys.stdout.write("=========\n")
 
         try:
-            sbp.run(cmd + "poetry update".split(), capture_output=True, check=True)
+            sbp.run(cmd + "poetry update".split(), check=True)
         except sbp.CalledProcessError as err:
             sys.stdout.write(f"Poetry failed with error code {err.returncode}\n")
+            sys.stdout.write("Attempting cordy install instead ...\n")
+
+            try:
+                sbp.run(cmd + "poetry install".split(), check=True)
+            except sbp.CalledProcessError as err:
+                sys.stdout.write(f"Poetry failed with error code {err.returncode}\n")
+                sys.stdout.write("Broken poetry install detected\n")
+
+        sys.stdout.write("=========\n")
 
     def post_setup(self, context: SimpleNamespace) -> None:
         self.setup_project_deps(context)

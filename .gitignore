@@ -157,7 +157,7 @@ pip-selfcheck.json
 # End of https://www.toptal.com/developers/gitignore/api/python,venv
 
 ## Local Env-Specific ##
-.venv/
+.venv*/
 # A file I use to prototype and quickly test code
 .sandbox.py
 
