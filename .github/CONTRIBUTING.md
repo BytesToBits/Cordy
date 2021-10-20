@@ -49,12 +49,6 @@ PRs which do not modify any package code should add `[skip ci]` to their title.
 If your issue or PR doesn't receive response then you can get in touch
 on [discord](https://discord.gg/kETeDB3)
 
-### Modyfying
-Ensure that the line endings **do not** get changed, especially for files
-with a shebang line.
-
-Commit changes with git or any derived gui tool and push to your branch/fork.
-
 ### Typing
 
 Type checking is used in cordy left and right. Hence it is important to be
@@ -78,7 +72,7 @@ The first step to contribute cordy is to setup your local development
 environment.
 
 ```
-$ python script/make_venv .venv/ # windows
+$ python script/make_venv .venv/ # windows / (other platforms as well, except the correct python must be used.)
 
 $ script/make_venv .venv/ # Posix-like (may need chmod +x)
 ```
@@ -109,6 +103,8 @@ or
 $ "script/typec.bat" # On windows
 
 $ script/typec # Posix-like (may need chmod +x)
+
+$ python script/typec # Any platform, In cordy's venv
 ```
 
 ## Style Guide

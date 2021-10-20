@@ -1,0 +1,4 @@
+* text=auto
+
+script/* text eol=lf
+script/typec.bat text eol=crlf
