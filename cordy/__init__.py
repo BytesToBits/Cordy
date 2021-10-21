@@ -4,6 +4,7 @@ from .auth import *
 from .client import *
 from .errors import *
 from .models import *
+from .gateway import *
 
 __version__ = version("cordy")
 del version
