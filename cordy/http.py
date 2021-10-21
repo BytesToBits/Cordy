@@ -98,7 +98,7 @@ class HTTPSession:
 
     async def get_gateway(self) -> URL:
         async with self.request(Route("GET", "/gateway")) as res:
-            return URL(await res.json(loads=util.loads)["url"])
+            return URL((await res.json(loads=util.loads))["url"])
 
     async def get_gateway_bot(self) -> Msg:
         async with self.request(Route("GET", "/gateway/bot")) as resp:
