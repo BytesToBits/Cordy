@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from asyncio.futures import Future
 import logging
 import zlib
 from enum import IntEnum
-from json import load
+from math import log10 as _log
 from sys import platform
 from time import perf_counter
-from typing import (TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Sequence, TypeVar,
+from typing import (TYPE_CHECKING, ClassVar, Protocol, TypeVar,
                     runtime_checkable)
 
 import aiohttp
@@ -16,22 +15,27 @@ from aiohttp import WSMsgType
 from aiohttp.client_ws import ClientWebSocketResponse
 from yarl import URL
 
+from cordy.events import Event, SourcedPublisher
+
 from . import util
 
 if TYPE_CHECKING:
+    from asyncio.futures import Future
+    from asyncio.locks import Lock
     from asyncio.tasks import Task
-    from typing import TypedDict
 
     from .client import Client
-    from .events import Emitter
+    from .types import Dispatch, Payload
     from .util import Msg
-    from .types import Payload, Dispatch
 
 logger = logging.getLogger(__name__)
 # TODO: ETF, Pyrlang/Term, discord/erlpack
 
 __all__ = (
     "GateWay",
+    "BaseSharder",
+    "Sharder",
+    "SingleSharder"
 )
 
 class LatencyTracker:
@@ -96,20 +100,27 @@ class Inflator: # for zlib
         The data buffer.
     decomp : :class:`zlib.Decompress`
         The zlib context used for decompressing.
+    stream : :class:`bool`
+        Whether the the data is a part of zlib-stream
     """
-    def __init__(self, **opt):
+    def __init__(self, stream: bool = False, **opt):
         self.buf = bytearray()
+        self.stream = stream
         self.decomp = zlib.decompressobj(**opt)
 
     def __call__(self, data: bytes) -> str | None:
-        self.buf.extend(data)
+        if not self.stream:
+            try:
+                return zlib.decompress(data).decode("utf-8")
+            except zlib.error:
+                self.buf.extend(data)
 
-        if len(data) >= 4 and data[-4:] == b'\x00\x00\xff\xff':
-            msg = self.decomp.decompress(data).decode("utf=8")
-            self.buf.clear()
-            return msg
+        if len(data) < 4 or data[-4:] != b'\x00\x00\xff\xff':
+            return None
 
-        return None
+        msg = self.decomp.decompress(self.buf).decode("utf-8")
+        self.buf = bytearray()
+        return msg
 
 # TODO: Consider Async initialisation to remove checks
 class GateWay:
@@ -128,14 +139,17 @@ class GateWay:
     _interval: float | None
     _ack_fut: Future | None
 
-    def __init__(self, client: Client, *, inflator: Inflator = None, shard_id: int = 0) -> None:
+    def __init__(self, client: Client, *, shard: Shard, inflator: Inflator = None, compression: bool = False) -> None:
         self.session = client.http
         self.token = client.token
         self.intents = client.intents
         self.inflator = inflator or Inflator()
+        self.inflator.stream = compression
         self.ws = None
         self.client = client
-        self.shard_id = shard_id
+        self.shard_id = shard.shard_id
+        self.emitter = shard.emitter
+        self.shard = shard
 
         self.loop = asyncio.get_event_loop()
         self._closed = False
@@ -150,53 +164,81 @@ class GateWay:
         self._resume = True
         self._listener = None
         self._reconnect = True
+        self._reconnecting = False
+        self._compression = compression
 
     @property
     def resumable(self) -> bool:
         return self._resume and bool(self._session_id)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    @property
+    def disconnected(self) -> bool:
+        return self.ws is not None and self.ws.closed
+
+    @property
+    def connected(self) -> bool:
+        return not self.disconnected
 
     async def connect(self, url: URL = None) -> None:
         if self._closed:
             raise ValueError("GateWay instance already closed")
 
         if self.ws and not self.ws.closed:
-            self.disconnect(message=b"Reconnecting")
+            await self.disconnect(message=b"Reconnecting")
 
         url = url or self._url or await self.session.get_gateway()
         url %= {"v": 9, "encoding": "json"}
 
+        if self._compression:
+            url %= {"compress": "zlib-stream"}
+
         try:
             self.ws = await self.session.ws_connect(url)
         except aiohttp.ServerTimeoutError:
-            logger.warning("Shard %s | Gateway websocket connection timed-out", self.shard_id)
-            raise
+            logger.warning("Shard %s | Gateway websocket server timed-out", self.shard_id)
+            return
         except aiohttp.WSServerHandshakeError:
             logger.warning("Shard %s | Gateway websocket handshake failed.", self.shard_id)
-            raise
+            return
+        except aiohttp.ClientConnectionError as err:
+            logger.warning("Shard %s | Can't connect to server: %s", self.shard_id, err)
+            return
 
         self._url = url
         self._reconnect = True
 
-        if self._listener:
-            self._listener.cancel()
+        self._listener is not None and self._listener.cancel()
 
         self._listener = self.loop.create_task(self.listen())
-
-        if self.resumable:
-            await self.resume()
-        else:
-            await self.identify()
 
     async def listen(self):
         if self.ws is None:
             return
 
+        backoff = 1
+        reconnecting = False
+        zombie_listener = False
+
         while not self._closed:
+            if reconnecting:
+                delay = 2 * backoff * _log(backoff)
+                logger.info("Disconnected, reconnecting again in %s", delay)
+                await asyncio.sleep(delay)
+                backoff = (backoff + 1) % 700 # limit sleep to around 2000 sec
+
+            if zombie_listener and not reconnecting:
+                break
+
             while not self.ws.closed:
+                data: Payload | None = None
                 msg = await self.ws.receive()
 
                 if msg.type == WSMsgType.TEXT:
-                    data: Payload = msg.json(loads=util.loads)
+                    data = msg.json(loads=util.loads)
                 elif msg.type == WSMsgType.BINARY:
                     if (_json := self.inflator(msg.data)):
                         data = util.loads(_json)
@@ -208,12 +250,16 @@ class GateWay:
                 else:
                     continue # ensure data is bound
 
-                self.loop.create_task(self.process_message(data))
+                if data is not None:
+                    self.loop.create_task(self.process_message(data))
 
             if self._reconnect:
                 await self.connect(self._url)
+                reconnecting = self.disconnected
+                zombie_listener = True
             else:
                 break
+
 
     async def process_message(self, msg: Payload) -> None:
         op = OpCodes.get_enum(msg["op"]) # 0,1,7,9,10,11
@@ -223,7 +269,15 @@ class GateWay:
             logger.warning("Gateway sent payload with unknown op code %s", msg.get("op"))
             return
 
+        logger.debug("Shard %s Received: %s", self.shard_id, msg)
+
         await getattr(self, op.name.lower())(msg)
+
+    async def start_session(self):
+        if self.resumable:
+            await self.resume()
+        else:
+            await self.identify()
 
     async def close(self):
         self._closed = True
@@ -236,6 +290,7 @@ class GateWay:
             self._beater.cancel()
 
         self._beater = self.loop.create_task(self.heartbeater())
+        self.loop.create_task(self.start_session())
 
     async def heartbeat(self, _: Msg):
         self.send({
@@ -257,7 +312,7 @@ class GateWay:
             try:
                 await asyncio.wait_for(self._ack_fut, timeout=self._interval)
             except asyncio.TimeoutError:
-                self.disconnect(message=b"zombied gateway connection")
+                await self.disconnect(message=b"zombied gateway connection")
                 self._reconnect = True
                 break
             else:
@@ -282,7 +337,7 @@ class GateWay:
         data = {
             "op": 2,
             "d": {
-                "token": self.token.get_auth(),
+                "token": self.token.token,
                 "properties": self._PROPS,
                 "intents": self.intents.value,
                 "compress": True,
@@ -314,7 +369,8 @@ class GateWay:
         if not self._listener or self._listener.done():
             await self.connect(self._url)
 
-    async def reconnect(self, _: Payload) -> None:
+    async def reconnect(self, _: Payload = None) -> None:
+        logger.debug("Shard %s Reconnecting...")
         self._reconnect = True
         self._resume = True
 
@@ -334,37 +390,56 @@ class GateWay:
             self._session_id = data["session_id"]
             self._resume = True
 
+        await self.emitter.emit(Event(event, data, self.shard))
+
     async def disconnect(self, *, code: int = 4000, message: bytes = b"") -> None:
         if not self.ws:
             return
 
         await self.ws.close(code=code, message=message)
         self._tracker.reset()
+        self._beater and self._beater.cancel()
+
+        await self.emitter.emit(Event("disconnect", self.shard))
 
     async def send(self, data: Msg) -> None:
         # TODO: RateLimit, Coming Soon :tm:
         if self.ws:
+            logger.debug("Shard %s Sending: %s", self.shard_id, data)
             await self.ws.send_str(util.dumps(data))
 
 class Shard:
     gateway: GateWay
-    emitter: Emitter
-    id: int
+    emitter: SourcedPublisher
+    shard_id: int
 
-    def __init__(self, client: Client, id_: int = 0) -> None:
-        self.id = id_
+    def __init__(self, client: Client, shard_id: int = 0) -> None:
+        self.shard_id = shard_id
         self.client = client
-        self.gateway = GateWay(client, shard_id=id_)
+        self.emitter = SourcedPublisher()
+        client.publisher.add(self.emitter)
+        self.gateway = GateWay(client, shard=self)
 
-    def launch(self, url: URL | None) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError as err:
-            import os
-            from threading import get_ident
-            raise Exception(f"Thread {get_ident()}, PID {os.getpid()}. No running event loop!") from err
+    async def connect(self):
+        if self.gateway.closed:
+            self.gateway = GateWay(self.client, shard=self)
 
-        loop.create_task(self.gateway.connect(url))
+        await self.gateway.connect()
+
+    async def close(self):
+        await self.gateway.close()
+
+    async def disconnect(self, *, code: int = 4000, message: str = "") -> None:
+        return await self.gateway.disconnect(code=code, message=message.encode("utf-8"))
+
+    async def reconnect(self):
+        # it properly reconnects and resumes
+        # this is an alias
+        await self.connect()
+
+    @property
+    def latency(self) -> float:
+        return self.gateway._tracker.latency
 
 S = TypeVar("S")
 
@@ -372,10 +447,12 @@ S = TypeVar("S")
 class BaseSharder(Protocol[S]):
     client: Client
     _url: URL | None
+    shards: list[S]
 
     def __init__(self, client: Client) -> None:
         self.client = client
         self._url: URL | None = None
+        self.shards: list[S] = []
 
     @property
     def num_shards(self):
@@ -385,10 +462,10 @@ class BaseSharder(Protocol[S]):
     def shard_ids(self):
         return self.client.shard_ids
 
-    async def create_shards(self) -> Sequence[S]:
+    async def create_shards(self) -> None:
         ...
 
-    async def launch_shards(self, shards: Sequence[S]) -> None:
+    async def launch_shards(self) -> None:
         ...
 
     def shard(self) -> None:
@@ -396,12 +473,16 @@ class BaseSharder(Protocol[S]):
 
 
 class Sharder(BaseSharder[Shard]):
-    async def create_shards(self) -> list[Shard]:
-        if self.num_shards is None:
+    def __init__(self, client: Client) -> None:
+        self.client = client
+        self._url = None
+        self.shards = []
+
+    async def create_shards(self):
+        if not self.num_shards:
             # don't cache the session limit
             # coz delay till launch is unknown
             data = await self.client.http.get_gateway_bot()
-            self._url = URL(data["url"])
             self.client.num_shards = data["shards"]
             self.client.shard_ids = self.shard_ids or set(range(data["shards"]))
 
@@ -410,13 +491,40 @@ class Sharder(BaseSharder[Shard]):
         for id_ in self.shard_ids:
             shards.append(Shard(self.client, id_))
 
-        return shards
+        self.shards = shards
 
-    async def launch_shards(self, shards: Sequence[Shard]) -> None:
+    async def launch_shards(self) -> None:
+        if not self.shards:
+            await self.create_shards()
         url = self._url
+        loop = asyncio.get_event_loop()
 
-        for shard in shards:
-            shard.launch(url)
+        # session object can't be cached
+        data = await self.client.http.get_gateway_bot()
+        limit = data["session_start_limit"]
 
-    async def shard(self):
-        return await self.launch_shards(await self.create_shards())
+        max_conc: int = limit["max_concurrency"]
+
+        buckets = [asyncio.Lock() for _ in range(max_conc)]
+
+        async def runner(sd: Shard, lock: Lock):
+            async with lock:
+                await sd.gateway.connect(url)
+
+        await asyncio.wait([loop.create_task(runner(sd, buckets[sd.shard_id % max_conc])) for sd in self.shards])
+
+class SingleSharder(BaseSharder[Shard]):
+    async def create_shards(self) -> None:
+        self.shards = [Shard(self.client, 0)]
+
+        self.client.num_shards = 1
+        self.client.shard_ids = {0,} #
+
+    async def launch_shards(self) -> None:
+        if not self.shards:
+            await self.create_shards()
+
+        sd = self.shards[0]
+
+        await sd.connect()
+
