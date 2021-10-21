@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import types
 from collections.abc import Coroutine
 from inspect import iscoroutinefunction
-from typing import Any, Callable, overload, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, overload
 
 if TYPE_CHECKING:
     pass
@@ -37,9 +38,22 @@ __all__ = (
 CoroFn = Callable[..., Coroutine]
 CheckFn = Callable[..., bool]
 
+_aliases = types.MappingProxyType({
+    "message": "message_create",
+    "member_join": "guild_member_add",
+    "member_leave": "guild_member_remove",
+    "member_update": "guid_member_update",
+    "role_create": "guild_role_create",
+    "role_update": "guild_role_update",
+    "role_delete": "guild_role_delete",
+    "message_purge": "message_delete_bulk",
+    "typing": "typing_start"
+})
 
 def _clean_event(name: str):
-    return name.casefold().removeprefix("on_")
+    ret = name.casefold().removeprefix("on_")
+
+    return _aliases.get(ret, ret)
 
 class Event:
     __slots__ = ("name", "args")
