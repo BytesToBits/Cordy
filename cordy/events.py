@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import types
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Generator
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, Callable, overload
+from typing import TYPE_CHECKING, Callable, Protocol, TypeVar, cast, overload
 
 if TYPE_CHECKING:
-    pass
+    EV = TypeVar("EV", contravariant=True)
+
+    class Observer(Protocol[EV]):
+        def __call__(self, event: EV) -> None:
+            ...
 
 __all__ = (
     "Emitter",
@@ -16,20 +20,9 @@ __all__ = (
     "Publisher"
 )
 
-# +-------+                                        +---------+
-# |Emitter| --(_Subscription() event stream)-----> |Publisher| <--- (Event stream from other Emitter/Filter)
-# +-------+                                        +---+---+-+
-# ^ Pushing data into a Linked List of Futures         |   |^ Pulling data from list (_notify_loop)
-#                                                      |   |
-#        Subscriber <---(Coroutine called)-------(_notify Task) -----> Subscriber
-#               |                                          |                  |
-#               +<--------------------------------------(Other _notify Task)->+
-#
-# _notify Tasks are created for each event
-# Models
-#   Emitter ----(Pub/Sub-push (with implicit stream))-> Filter / Publisher
-#     - Filter --> Publisher is same as above since, issubclass(Filter, Emitter) == True
-#   Publisher ----(Observer pattern)--> Subcribers (aka Coroutine Funstions)
+# Event System Design:
+#  Emitter/Filter -> Publisher._notifier.send(event) -> Publisher._notifier -> Task<Publisher._notify(event)>
+#                 ->   _Filter_relayer.send(event)   ->   _Filter_relayer   -> Filter.emit(event)
 
 # TODO: Make integrations with reactive data streams.
 #   basically make the Emmiter work in place of Observable
@@ -79,63 +72,73 @@ class Event:
 FilterFn = Callable[[Event], bool]
 
 class Emitter:
-    def __init__(self) -> None:
-        self.loop = asyncio.get_event_loop()
-        self._aiter_fut = self.loop.create_future()
+    if TYPE_CHECKING:
+        _obvrs: set[Observer[Event]]
 
-    async def emit(self, event: Event) -> None:
-        fut = self.loop.create_future()
-        self._aiter_fut.set_result((event, fut))
-        self._aiter_fut = fut
+    def __init__(self) -> None:
+        self._obvrs = set()
+
+    def emit(self, event: Event) -> None:
+        to_remove = []
+        for obs in self._obvrs:
+            try:
+                obs(event)
+            except StopIteration:
+                # Observor maybe a generator's method
+                # which would make sense since they
+                # are more effiecient at receiving and
+                # sending values
+                to_remove.append(obs)
+
+        for closed in to_remove:
+            self._obvrs.discard(closed)
 
     def filter(self, func: FilterFn):
         return Filter(func, self)
 
-    def __aiter__(self):
-        return _Subscription(self._aiter_fut)
+    def _add_observer(self, obs):
+        self._obvrs.add(obs)
+
+    def _discard_observer(self, obs):
+        self._obvrs.discard(obs)
 
 class Filter(Emitter):
     def __init__(self, filter_fn: FilterFn, source: Emitter) -> None:
         super().__init__()
         self.filter_fn = filter_fn
         self.src = source
-        asyncio.get_event_loop().create_task(self._emit_loop())
+        gen = _Filter_relayer(self)
+        gen.send(None)
+        source._add_observer(gen.send)
+        self.__gen = gen
 
-    async def emit(self, event: Event) -> None:
+    def emit(self, event: Event) -> None:
         if self.filter_fn(event):
-            return await super().emit(event)
+            return super().emit(event)
 
-    async def _emit_loop(self) -> None:
-        loop =  asyncio.get_event_loop()
-        async for event in self.src:
-            await self.emit(event)
+    def __del__(self):
+        try:
+            self.__gen.close()
+            self.src._discard_observer(self.__gen.send)
+        except AttributeError:
+            pass
 
-# NEEDS: Back pressure strategy
-# MAYBE: Change Model from Linked List to Queue?
-FutNode = asyncio.Future[tuple[Event, asyncio.Future]]
-class _Subscription:
-    fut: FutNode
+def _Filter_relayer(self: Filter):
+    ev = yield
 
-    def __init__(self, fut: FutNode) -> None:
-        self.fut = fut
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self) -> Event:
-        event, self.fut = await self.fut
-        return event
+    while True:
+        ev = yield
+        self.emit(ev)
 
 class Publisher:
     waiters: dict[str, set[tuple[asyncio.Future[tuple], CheckFn | None]]]
     listeners: dict[str, set[CoroFn]]
-    emitters: dict[Emitter, asyncio.Task]
+    emitters: dict[Emitter, Generator[None, Event, None]]
 
     def __init__(self, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
         self.waiters = dict()
         self.listeners = dict()
         self.emitters = dict()
-        self.loop = asyncio.get_event_loop()
         self.err_hdlr = error_hdlr
 
     async def _notify(self, event: Event) -> None:
@@ -154,15 +157,12 @@ class Publisher:
         if in_lst:
             await aw
 
-    async def _notify_loop(self, emitter: Emitter) -> None:
-        loop = self.loop
-        try:
-            async for event in emitter:
-                if emitter not in self.emitters:
-                    break
-                loop.create_task(self._notify(event))
-        except asyncio.CancelledError:
-            return
+    def _notifier(self):
+        event = yield
+
+        while True:
+            event = yield
+            asyncio.create_task(self._notify(event))
 
     @overload
     def subscribe(self) -> Callable[[CoroFn], CoroFn]:
@@ -207,7 +207,7 @@ class Publisher:
         if ev_waiters is None:
             self.waiters[name] = ev_waiters = set()
 
-        fut: asyncio.Future[tuple] = self.loop.create_future()
+        fut: asyncio.Future[tuple] = asyncio.get_running_loop().create_future()
         pair = (fut, check)
         ev_waiters.add(pair)
 
@@ -221,17 +221,20 @@ class Publisher:
             ev_waiters.discard(pair)
 
     def add(self, emitter: Emitter) -> None:
-        task = self.emitters.get(emitter, None)
-        if task is not None:
-            task.cancel()
-        self.emitters[emitter] = self.loop.create_task(self._notify_loop(emitter))
+        gen = self.emitters.get(emitter, None)
+        if gen is not None:
+            gen.close()
+            emitter._discard_observer(gen.send)
+
+        self.emitters[emitter] = self._notifier()
 
     def remove(self, emitter: Emitter) -> None:
-        task = self.emitters.get(emitter, None)
-        if task is None:
+        gen = self.emitters.get(emitter, None)
+        if gen is None:
             return
         else:
-            task.cancel()
+            gen.close()
+            emitter._discard_observer(gen.send)
             del self.emitters[emitter]
 
 # Pros - less overhead for listeners
@@ -240,23 +243,21 @@ class Publisher:
 class SourcedPublisher(Publisher, Emitter):
     def __init__(self, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
         super().__init__(error_hdlr=error_hdlr)
-        self._aiter_fut = self.loop.create_future()
+        Emitter.__init__(self)
 
     def filter(self, func: FilterFn) -> FilteredPublisher:
         return FilteredPublisher(func, self, self.err_hdlr)
 
-    async def emit(self, event: Event) -> None:
+    def emit(self, event: Event) -> None:
         super().emit(event)
-        self.loop.create_task(self._notify(event))
+        asyncio.create_task(self._notify(event))
 
 class FilteredPublisher(SourcedPublisher, Filter):
     def __init__(self, filter_fn: FilterFn, source: Emitter, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
         super().__init__(error_hdlr=error_hdlr)
-        self.filter_fn = filter_fn
-        self.src = source
-        self.loop.create_task(self._emit_loop())
+        Filter.__init__(self, filter_fn, source)
 
-    async def emit(self, event: Event) -> None:
+    def emit(self, event: Event) -> None:
         if self.filter_fn(event):
             super(Filter, self).emit(event)
-            self.loop.create_task(self._notify(event))
+            asyncio.create_task(self._notify(event))
