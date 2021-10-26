@@ -226,7 +226,9 @@ class Publisher:
             gen.close()
             emitter._discard_observer(gen.send)
 
-        self.emitters[emitter] = self._notifier()
+        self.emitters[emitter] = notif = self._notifier()
+        notif.send(None)
+        emitter._add_observer(notif.send)
 
     def remove(self, emitter: Emitter) -> None:
         gen = self.emitters.get(emitter, None)
