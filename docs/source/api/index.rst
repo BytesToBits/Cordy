@@ -6,3 +6,7 @@ Cordy API Reference
     :caption: API
 
     intents
+    client
+    errors
+    runners
+    token

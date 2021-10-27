@@ -52,10 +52,9 @@ on [discord](https://discord.gg/kETeDB3)
 ### Typing
 
 Type checking is used in cordy left and right. Hence it is important to be
-familiar with basics in python. You can find many tutorials on google by
-searching `Type checking tutorial python`
+familiar with typing basics in python. You can find many tutorials on google for the same.
 
-Also use `from __future__ import annotations` to postpone typehint evalution
+Also use `from __future__ import annotations` to postpone typehint evalution instead of strings.
 More info at [PEP 563](https://www.python.org/dev/peps/pep-0563/)
 
 ### Versioning
@@ -111,7 +110,7 @@ $ python script/typec # Any platform, In cordy's venv
 
 ### Code Style
 
-Cordy uses [PEP 8](https://www.python.org/dev/peps/pep-0008/) code style, all incoming code is expected to (soft) PEP 8 compliant.
+Cordy uses [PEP 8](https://www.python.org/dev/peps/pep-0008/) code style, all incoming code is expected to be (soft) PEP 8 compliant.
 
 ### Commit Messages
 

@@ -39,6 +39,18 @@ __all__ = (
 )
 
 class LatencyTracker:
+    """The connection latency tracker.
+    This keeps a track of the latency of a connection.
+    The type of latency which is tracked depends on the class
+    the tracker is bound to.
+    For example, a tracker boud to :class:`.Gateway`
+    tracks the heartbeat latency.
+
+    Attributes
+    ----------
+    avg_latency : :class:`float`
+        The average latency, this is the average of all recorded latencies.
+    """
     def __init__(self) -> None:
         self._num_checks = 0
         self._last_latency = 0.0
@@ -47,6 +59,7 @@ class LatencyTracker:
 
     @property
     def latency(self) -> float:
+        """:class:`float` : The last recorded latency"""
         return self._last_latency
 
     @latency.setter
@@ -62,6 +75,7 @@ class LatencyTracker:
 
     @property
     def last_ten(self) -> tuple[float, ...]:
+        """tuple[:class:`float`, ...], (:class:`tuple`) : A tuple with last 10 recorded latencies"""
         return tuple(self._last_ten)
 
     reset = __init__
@@ -124,6 +138,10 @@ class Inflator: # for zlib
 
 # TODO: Consider Async initialisation to remove checks
 class GateWay:
+    """The Gateway connection manager.
+    This is a low level construct which should not be interacted with
+    directly.
+    """
     _PROPS: ClassVar[dict[str, str]] = {
         "$os": platform,
         "$browser": "cordy",
@@ -207,6 +225,8 @@ class GateWay:
         except aiohttp.ClientConnectionError as err:
             logger.warning("Shard %s | Can't connect to server: %s", self.shard_id, err)
             return
+
+        logger.info("Shard %s connected to gateway", self.shard_id)
 
         self._url = url
         self._reconnect = True
@@ -390,7 +410,7 @@ class GateWay:
             self._session_id = data["session_id"]
             self._resume = True
 
-        await self.emitter.emit(Event(event, data, self.shard))
+        self.emitter.emit(Event(event, data, self.shard))
 
     async def disconnect(self, *, code: int = 4000, message: bytes = b"") -> None:
         if not self.ws:
@@ -400,7 +420,7 @@ class GateWay:
         self._tracker.reset()
         self._beater and self._beater.cancel()
 
-        await self.emitter.emit(Event("disconnect", self.shard))
+        self.emitter.emit(Event("disconnect", self.shard))
 
     async def send(self, data: Msg) -> None:
         # TODO: RateLimit, Coming Soon :tm:

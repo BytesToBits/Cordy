@@ -70,31 +70,21 @@ class Route:
         return Endpoint(self, params)
 
 class HTTPSession:
-    headers: dict[str, str]
-
-    def __init__(self, session: ClientSession, token: Token) -> None:
-        self.session = session
-
-        self.headers = {
+    def __init__(self, token: Token) -> None:
+        headers = {
             "Authorization": token.get_auth(),
             "User-Agent": "Cordy (https://github.com/BytesToBits/Cordy, 0.1.0)"
         }
 
-    def _update_kw(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        if kwargs.get("headers"):
-            kwargs["headers"].update(self.headers)
-        else:
-            kwargs["headers"] = self.headers
-
-        return kwargs
+        self.session = ClientSession(headers=headers)
 
     def ws_connect(self, url: URL, **kwargs):
-        return self.session.ws_connect(url, **self._update_kw(kwargs))
+        return self.session.ws_connect(url, **kwargs)
 
     def request(self, endp: Endpoint | Route, **kwargs):
         if endp.url is None:
             raise ValueError(f"Used {type(endp)} instance with unformatted url")
-        return self.session.request(endp.method, endp.url, **self._update_kw(kwargs))
+        return self.session.request(endp.method, endp.url, **kwargs)
 
     async def get_gateway(self) -> URL:
         async with self.request(Route("GET", "/gateway")) as res:
