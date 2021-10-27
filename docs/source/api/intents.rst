@@ -6,7 +6,7 @@ you will not receive any of the gateway events that are batched into that group.
 `Here <https://discord.com/developers/docs/topics/gateway#list-of-intents>`_ is a
 list of intents and the discord intents they control.
 
-.. autoclass:: cordy.Intents
+.. autoclass:: cordy.models.intents.Intents
     :members:
 
 Example

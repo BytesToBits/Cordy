@@ -16,8 +16,6 @@ class Token:
     ----------
     token : :class:`str`
         The token string without any prefixes like "Bot" or "Bearer"
-    bearer : :class:`bool`
-        Whether the token is an oauth bearer token. This is always the negation of :attr:`.Token.bot`
     """
     BOT_PREFIX: ClassVar[str] = "Bot"
     BEARER_PREFIX: ClassVar[str] = "Bearer"

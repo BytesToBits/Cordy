@@ -1,12 +1,26 @@
 [tool.poetry]
 name = "cordy.py"
-version = "0.1.0.dev1"
+version = "0.1.0.dev2"
 description = "A simple to use Discord API wrapper"
 authors = ["BytesToBits"]
 license = "MIT"
 packages = [
     {include = "cordy"}
 ]
+readme = "README.md"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed"
+]
+
+homepage = "https://github.com/BytesToBits/Cordy#readme"
+repository = "https://github.com/BytesToBits/Cordy"
+documentation = "https://cordy.rtfd.io"
+"Bug Tracker" = "https://github.com/BytesToBits/Cordy/issues"
+discord = "https://discord.gg/G4VhjVkGzu"
+
 
 [tool.poetry.dependencies]
 python = "^3.9"
