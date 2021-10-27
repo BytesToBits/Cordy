@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
-import threading
 from asyncio.runners import _cancel_all_tasks  # type: ignore[attr-defined]
 from functools import partial
 from typing import TYPE_CHECKING
@@ -56,7 +55,7 @@ def run_all(clients: Iterable[Client]):
 
     Parameters
     ----------
-    clients : Sequence[:class:`~cordy.client.Client`]
+    clients : Iterable[:class:`~cordy.client.Client`]
         All the clients to run.
     """
     return run_loop(_run_all(clients))
