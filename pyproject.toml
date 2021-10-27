@@ -4,6 +4,9 @@ version = "0.1.0.dev1"
 description = "A simple to use Discord API wrapper"
 authors = ["BytesToBits"]
 license = "MIT"
+packages = [
+    {include = "cordy"}
+]
 
 [tool.poetry.dependencies]
 python = "^3.9"
