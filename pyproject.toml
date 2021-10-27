@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cordy.py"
-version = "0.1.0.dev2"
+version = "0.1.0.dev3"
 description = "A simple to use Discord API wrapper"
 authors = ["BytesToBits"]
 license = "MIT"
@@ -18,6 +18,8 @@ classifiers = [
 homepage = "https://github.com/BytesToBits/Cordy#readme"
 repository = "https://github.com/BytesToBits/Cordy"
 documentation = "https://cordy.rtfd.io"
+
+[tool.poetry.urls]
 "Bug Tracker" = "https://github.com/BytesToBits/Cordy/issues"
 discord = "https://discord.gg/G4VhjVkGzu"
 
