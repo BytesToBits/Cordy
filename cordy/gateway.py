@@ -4,7 +4,7 @@ import asyncio
 import logging
 import zlib
 from enum import IntEnum
-from math import log10 as _log
+from math import ceil, log10 as _log
 from sys import platform
 from time import perf_counter
 from typing import (TYPE_CHECKING, ClassVar, Protocol, TypeVar,
@@ -14,6 +14,7 @@ import aiohttp
 from aiohttp import WSMsgType
 from aiohttp.client_ws import ClientWebSocketResponse
 from yarl import URL
+import uprate as up
 
 from cordy.events import Event, SourcedPublisher
 
@@ -184,6 +185,7 @@ class GateWay:
         self._reconnect = True
         self._reconnecting = False
         self._compression = compression
+        self._ratelimit = up.Bucket[None](120 / up.Minutes(1))
 
     @property
     def resumable(self) -> bool:
@@ -297,6 +299,7 @@ class GateWay:
         if self.resumable:
             await self.resume()
         else:
+            self._ratelimit.reset()
             await self.identify()
 
     async def close(self):
@@ -305,6 +308,9 @@ class GateWay:
 
     async def hello(self, msg: Msg):
         self._interval = msg["d"]["heartbeat_interval"] / 1000
+
+        if self._interval: # Dynamic heartbeat reserving
+            self._ratelimit.rates[0].uses = 120 - ceil(60 / self._interval)
 
         if self._beater is not None:
             self._beater.cancel()
@@ -423,10 +429,11 @@ class GateWay:
         self.emitter.emit(Event("disconnect", self.shard))
 
     async def send(self, data: Msg) -> None:
-        # TODO: RateLimit, Coming Soon :tm:
         if self.ws:
             logger.debug("Shard %s Sending: %s", self.shard_id, data)
-            await self.ws.send_str(util.dumps(data))
+            # todo: presence update
+            async with self._ratelimit.acquire(None):
+                await self.ws.send_str(util.dumps(data))
 
 class Shard:
     gateway: GateWay

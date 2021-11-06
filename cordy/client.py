@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from logging import getLogger
 from typing import TYPE_CHECKING, Any, Callable, Sequence
+from asyncio import get_running_loop
 
 from .auth import Token
 from .events import Emitter, Publisher
@@ -64,6 +65,7 @@ class Client:
     """
     num_shards: int | None
     shard_ids: set[int] | None
+    http: HTTPSession
 
     def __init__(
         self, token: StrOrToken, *,
@@ -169,12 +171,24 @@ class Client:
         """
         return await self.publisher.wait_for(name, timeout, check)
 
+    async def setup(self) -> None:
+        """Initialise client with the current running event loop.
+        """
+        try:
+            loop = get_running_loop()
+        except RuntimeError as err:
+            raise Exception("Ran Coroutine without a running aysncio event loop") from err
+        else:
+            if loop is not self.http.session._loop:
+                self.http = HTTPSession(self.token)
+
     async def connect(self) -> None:
         """Launch all shards and connect to gateway.
         """
         if self._closed:
             raise ValueError("Can't connect with a closed client.")
 
+        await self.setup()
         await self.sharder.create_shards()
         await self.sharder.launch_shards()
 

@@ -31,7 +31,7 @@ furo = {version = "^2021.7.5-beta.38", optional = true}
 yarl = "^1.6.3"
 aiohttp = "^3.7.4"
 typing-extensions = "^3.10.0"
-uprate = "^0.1.0"
+uprate = "^0.2.0"
 
 [tool.poetry.dev-dependencies]
 mypy = "^0.910"
