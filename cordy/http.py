@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, final, overload
 
 from aiohttp import ClientSession
 from yarl import URL
@@ -16,27 +16,47 @@ __all__ = (
     "Endpoint",
 )
 
+API_VERSION: Final[int] = 8
+API_PATH: Final[str] = f"/api/v{API_VERSION}"
+
 # TODO: Make buckets for ratelimits
 # MAYBE: Remove cache if global instances are used
 Methods = Literal["GET", "PUT", "PATCH", "POST", "DELETE"]
+Parameters = Literal['channel_id', 'guild_id', 'webhook_id', 'webhook_token']
 
+PARAMS: Final[set[str]] = set(Parameters.__args__) # type: ignore[attr-defined]
+
+@final
 class Endpoint:
-    __slots__ = ("route", "url")
+    __slots__ = ("route", "url", "bucket")
 
-    route: Route
+    route: Route # TOREMOVE: Change to method instead
     url: URL
+    bucket: str
 
-    def __init__(self, route: Route, params: dict[str, str]) -> None:
+    def __init__(self, route: Route, params: dict[Parameters, int | str]) -> None:
         self.route = route
-        self.url = self.route.BASE / route.path.format_map(params)
+
+        try:
+            # ignore because we are handling invalid key
+            self.url = self.route.BASE / route.path.format_map(params) # type: ignore[arg-type]
+        except KeyError as err:
+            raise ValueError("All arguments needed for route not provided") from err
+
+        self.bucket  = (self.method
+                        + " "
+                        + '-'.join(str(v) for k, v in params.items() if k in PARAMS)
+                        + " "
+                        + self.route.path)
 
     @property
     def method(self) -> Methods:
         return self.route.method
 
+@final
 class Route:
     _CACHE: ClassVar[dict[str, Route]] = {}
-    BASE: ClassVar[URL] = URL('https://discord.com/api/v8')
+    BASE: ClassVar[URL] = URL(f'https://discord.com/api/v{API_VERSION}')
 
     __slots__ = ("method", "path")
 
@@ -63,12 +83,25 @@ class Route:
             return None
         return self.BASE / self.path
 
-    def with_params(self, **params) -> Endpoint:
+    @overload
+    def with_params(self) -> Endpoint:
+        ...
+
+    @overload
+    def with_params(self,
+                    channel_id: int = ...,
+                    guild_id: int = ...,
+                    webhook_id: int = ...,
+                    webhook_token: str = ...) -> Endpoint:
+        ...
+
+    def with_params(self, **params):
+        return Endpoint(self, params) # type: ignore[arg-type] # because overload provided
+
+    def __mod__(self, params: dict[Parameters, int | str]) -> Endpoint:
         return Endpoint(self, params)
 
-    def __mod__(self, params) -> Endpoint:
-        return Endpoint(self, params)
-
+@final
 class HTTPSession:
     def __init__(self, token: Token) -> None:
         headers = {
