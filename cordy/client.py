@@ -173,6 +173,8 @@ class Client:
 
     async def setup(self) -> None:
         """Initialise client with the current running event loop.
+        This is implicity called when the gateway is launched, otherwise this needs
+        to be called explicitly with a running loop.
         """
         try:
             loop = get_running_loop()
