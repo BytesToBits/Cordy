@@ -6,6 +6,8 @@ from time import time
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from dataclasses import dataclass
 
+from multidict import CIMultiDictProxy
+
 from ..errors import RateLimitTooLong
 from .route import Endpoint
 from ..util import make_proxy_for
@@ -112,7 +114,7 @@ class BaseLimiter(Protocol):
     async def __aexit__(self, *_) -> bool:
         ...
 
-    def delay_till(self, timestamp: float, _: str) -> None:
+    def delay_till(self, timestamp: float, bucket: str | None) -> None:
         ...
 
 class Limiter:
@@ -130,7 +132,7 @@ class Limiter:
     async def __aexit__(self, *_) -> Literal[False]:
         return False
 
-    def delay_till(self, timestamp: float, bucket: str) -> None:
+    def delay_till(self, timestamp: float, bucket: str | None) -> None:
         loop = asyncio.get_running_loop()
         delta = (timestamp - time())
         self.resets_at = timestamp
@@ -148,7 +150,10 @@ class LazyLimiter(Limiter):
         self.endp = endp
         super().__init__()
 
-    def delay_till(self, timestamp: float, bucket: str) -> None:
+    def delay_till(self, timestamp: float, bucket: str | None) -> None:
+        if not bucket:
+            return
+
         delayer = self.delayer
         grouper = delayer.grouper
         grouper.add(self.endp, bucket)

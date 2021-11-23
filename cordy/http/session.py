@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import final, TYPE_CHECKING
 
 from aiohttp import ClientSession
+from asyncio import Event
 
 from .. import util
-from .ratelimit import Delayer
+from .ratelimit import Delayer, LazyLimiter
 
 if TYPE_CHECKING:
     from yarl import URL
+    from aiohttp.client_reqrep import ClientResponse
 
     from ..auth import Token
     from ..util import Msg
@@ -24,6 +26,11 @@ class HTTPSession:
         }
 
         self.session = ClientSession(headers=headers)
+        self.delayer = Delayer()
+        self.global_limit = Event()
+        self.global_limit.set()
+
+        self._loop = self.session._loop
 
     def ws_connect(self, url: URL, **kwargs):
         return self.session.ws_connect(url, **kwargs)
@@ -31,7 +38,26 @@ class HTTPSession:
     async def request(self, endp: Endpoint | Route, **kwargs):
         if endp.url is None:
             raise ValueError(f"Used {type(endp)} instance with unformatted url")
-        return await self.session.request(endp.method, endp.url, **kwargs)
+
+        while True:
+            await self.global_limit.wait()
+            async with self.delayer.acquire(endp, timeout=kwargs.get("timeout")) as limit:
+                resp = await self.session.request(endp.method, endp.url, **kwargs)
+                hdrs = resp.headers
+
+                if resp.status == 429:
+                    is_global = hdrs.get("X-RateLimit-Global")
+                    buc = hdrs.get("X-RateLimit-Bucket")
+                    ts = hdrs.get("X-RateLimit-Reset")
+
+                    if not is_global:
+                        if ts:
+                            limit.delay_till(float(ts), buc)
+                    else:
+                        self.global_limit
+                        self._loop.call_at(ts or 1, self.global_limit.set)
+                else:
+                    return resp
 
     async def get_gateway(self) -> URL:
         async with self.request(Route("GET", "/gateway")) as res:
