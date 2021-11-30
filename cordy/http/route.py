@@ -79,6 +79,10 @@ class Route:
             return None
         return self.BASE / self.path
 
+    @property
+    def route(self) -> Route:
+        return self
+
     @overload
     def with_params(self) -> Endpoint:
         ...

@@ -3,10 +3,13 @@ from __future__ import annotations
 from typing import final, TYPE_CHECKING
 
 from aiohttp import ClientSession
+from aiohttp.client import _RequestContextManager
 from asyncio import Event
+from yarl import URL
 
 from .. import util
-from .ratelimit import Delayer, LazyLimiter
+from .ratelimit import Delayer
+from .route import Route
 
 if TYPE_CHECKING:
     from yarl import URL
@@ -14,7 +17,7 @@ if TYPE_CHECKING:
 
     from ..auth import Token
     from ..util import Msg
-    from .route import Endpoint, Route
+    from .route import Endpoint
 
 
 @final
@@ -35,14 +38,14 @@ class HTTPSession:
     def ws_connect(self, url: URL, **kwargs):
         return self.session.ws_connect(url, **kwargs)
 
-    async def request(self, endp: Endpoint | Route, **kwargs):
+    async def _request(self, endp: Endpoint | Route, **kwargs):
         if endp.url is None:
             raise ValueError(f"Used {type(endp)} instance with unformatted url")
 
         while True:
             await self.global_limit.wait()
             async with self.delayer.acquire(endp, timeout=kwargs.get("timeout")) as limit:
-                resp = await self.session.request(endp.method, endp.url, **kwargs)
+                resp = await self.session._request(endp.method, endp.url, **kwargs)
                 hdrs = resp.headers
 
                 if resp.status == 429:
@@ -59,6 +62,9 @@ class HTTPSession:
                 else:
                     return resp
 
+    def request(self, endp: Endpoint | Route, **kwargs):
+        return _RequestContextManager(self._request(endp, **kwargs))
+
     async def get_gateway(self) -> URL:
         async with self.request(Route("GET", "/gateway")) as res:
             return URL((await res.json(loads=util.loads))["url"])
@@ -67,6 +73,10 @@ class HTTPSession:
         async with self.request(Route("GET", "/gateway/bot")) as resp:
             ret: Msg = await resp.json(loads=util.loads)
             return ret
+
+    async def send_message(self, channel_id: int | str, content: str): # basic prototype not for use
+        async with self.request(Route("POST", "/channels/{channel_id}/messages") % dict(channel_id=channel_id), json=dict(content=content)) as res:
+            return res
 
     async def close(self):
         return await self.session.close()
