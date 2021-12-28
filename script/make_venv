@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from __future__ import annotations
+import os
 
 import subprocess as sbp
 import sys
@@ -30,8 +31,32 @@ class CordyEnvBuilder(venv.EnvBuilder):
             upgrade_deps=upgrade_deps
         )
 
+    def create(self, env_dir): # Copied
+        env_dir = os.path.abspath(env_dir)
+        context = self.ensure_directories(env_dir)
+        # See issue 24875. We need system_site_packages to be False
+        # until after pip is installed.
+        true_system_site_packages = self.system_site_packages
+        self.system_site_packages = False
+        self.create_configuration(context)
+        self.setup_python(context)
+        if self.with_pip:
+            self._setup_pip(context)
+        if not self.upgrade:
+            self.setup_scripts(context)
+            self.post_setup(context)
+        if true_system_site_packages:
+            # We had set it to False before, now
+            # restore it and rewrite the configuration
+            self.system_site_packages = True
+            self.create_configuration(context)
+        if self.upgrade_deps:
+            self.upgrade_dependencies(context)
+        self.setup_project_deps(context)
+
     def setup_project_deps(self, context: SimpleNamespace) -> None:
         cmd = [context.env_exe, "-m"]
+        print(cmd)
 
         sys.stdout.write("Installing Poetry...\n")
         sys.stdout.write("=========\n")
@@ -54,9 +79,6 @@ class CordyEnvBuilder(venv.EnvBuilder):
                 sys.stdout.write("Broken poetry install detected\n")
 
         sys.stdout.write("=========\n")
-
-    def post_setup(self, context: SimpleNamespace) -> None:
-        self.setup_project_deps(context)
 
 def main(argv=None) -> int:
     import argparse
@@ -127,6 +149,8 @@ def main(argv=None) -> int:
         for d in options.dirs:
             builder.create(d)
     except Exception:
+        import traceback
+        traceback.print_exc()
         return 1
     else:
         return 0
