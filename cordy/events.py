@@ -82,7 +82,8 @@ class Emitter:
         to_remove = []
         for obs in self._obvrs:
             try:
-                obs(event)
+                if obs(event) is not None:
+                    to_remove.append(obs)
             except StopIteration:
                 # Observor maybe a generator's method
                 # which would make sense since they
@@ -106,7 +107,6 @@ class Filter(Emitter):
     def __init__(self, filter_fn: FilterFn, source: Emitter) -> None:
         super().__init__()
         self.filter_fn = filter_fn
-        self.src = source
         gen = _Filter_relayer(self)
         gen.send(None)
         source._add_observer(gen.send)
@@ -119,7 +119,6 @@ class Filter(Emitter):
     def __del__(self):
         try:
             self.__gen.close()
-            self.src._discard_observer(self.__gen.send)
         except AttributeError:
             pass
 
