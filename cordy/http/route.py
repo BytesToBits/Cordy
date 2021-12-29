@@ -18,13 +18,14 @@ API_PATH: Final[str] = f"/api/v{API_VERSION}"
 Methods = Literal["GET", "PUT", "PATCH", "POST", "DELETE"]
 Parameters = Literal['channel_id', 'guild_id', 'webhook_id', 'webhook_token']
 
+# don't really remember why this is a dict?
 PARAMS: Final[dict[Parameters, None]] = dict.fromkeys(Parameters.__args__) # type: ignore[attr-defined]
 
 @final
 class Endpoint:
     __slots__ = ("route", "url", "params")
 
-    route: Route # TOREMOVE: Change to method instead
+    route: Route
     url: URL
 
     def __init__(self, route: Route, params: dict[Parameters, int | str]) -> None:
@@ -64,13 +65,14 @@ class Route:
         cache_bucket = method + ":" + path
         self = cls._CACHE.get(cache_bucket, None)
 
-        if self is None:
+        if self is not None:
+            return self
+        else:
             self = super().__new__(cls)
             self.method = method
             self.path = path
             cls._CACHE[cache_bucket] = self
-
-        return self
+            return self
 
     @property
     def url(self) -> URL | None:

@@ -6,8 +6,6 @@ from time import time
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from dataclasses import dataclass
 
-from multidict import CIMultiDictProxy
-
 from ..errors import RateLimitTooLong
 from .route import Endpoint
 from ..util import make_proxy_for
@@ -183,6 +181,9 @@ class TimedLimiterProxy:
         if delta > self.max_wait:
             raise RateLimitTooLong("Sleep needed exceeded timeout")
         else:
+            # There is no way the timestamp and event mismatch.
+            # We may simply ignore the possibility of sleeping more
+            # since that should be handled by higher level api.
             return await self._limiter.__aenter__()
 
     async def __aexit__(self, *exc_info):
