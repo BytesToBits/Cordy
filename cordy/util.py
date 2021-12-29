@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Any, TypeVar, Union
-from itertools import chain
 import inspect
+from time import perf_counter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -51,9 +51,9 @@ def make_proxy_for(org_cls: C, /, *, attr: str, proxied_attrs: Iterable[str] = N
                 "fdel": fdel
             }
 
-        proxied = chain.from_iterable(
+        proxied = (
             it for it in (
-                proxied_attrs or chain.from_iterable(
+                proxied_attrs or (
                     getattr(c, '__slots__', tuple()) for c in org_cls.__mro__
                 ),
                 proxied_methods or (
@@ -62,9 +62,32 @@ def make_proxy_for(org_cls: C, /, *, attr: str, proxied_attrs: Iterable[str] = N
             ) if it is not None
         )
 
-
         for s in proxied:
             setattr(cls, s, property(**make_encapsulators(s)))
 
         return cls
     return deco
+
+class Timer:
+    """A context mangager to time code
+
+    Attributes
+    ==========
+    time : :class:`int`, :data:`None`, ``int | None``
+        The real time taken to exit the context manager.
+        when context manager has not exited it stores the value of
+        the performance counter used by :func:`time.perf_counter`
+    """
+    __slots__ = ("time",)
+
+    delta: None | int
+
+    def __init__(self) -> None:
+        self.time = None
+
+    def __enter__(self):
+        self.time = perf_counter()
+        return self
+
+    def __exit__(self, *exc_info):
+        self.time -= perf_counter()
