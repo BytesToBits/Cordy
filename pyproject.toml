@@ -40,7 +40,7 @@ mypy = "^0.910"
 docs = ["Sphinx", "furo"]
 
 [tool.pyright]
-include = ["uprate"]
+include = ["cordy"]
 exclude = ["docs", ".venv/", ".git", "**/__pycache__", ".mypy_cache"]
 
 [build-system]
