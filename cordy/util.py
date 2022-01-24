@@ -4,6 +4,7 @@ import json
 from typing import TYPE_CHECKING, Any, TypeVar, Union
 import inspect
 from time import perf_counter
+from itertools import chain
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -51,16 +52,18 @@ def make_proxy_for(org_cls: C, /, *, attr: str, proxied_attrs: Iterable[str] = N
                 "fdel": fdel
             }
 
-        proxied = (
-            it for it in (
-                proxied_attrs or (
-                    getattr(c, '__slots__', tuple()) for c in org_cls.__mro__
-                ),
-                proxied_methods or (
-                    m[0] for m in inspect.getmembers(org_cls, predicate=inspect.isfunction) if not hasattr(cls, m[0])
+        proxied = chain(
+            proxied_attrs or chain.from_iterable(
+                getattr(c, '__slots__', tuple()) for c in org_cls.__mro__
+            ),
+            proxied_methods or filter(
+                lambda m: not hasattr(cls, m),
+                map(
+                    lambda m: m[0], inspect.getmembers(org_cls, predicate=inspect.isfunction)
                 )
-            ) if it is not None
+            )
         )
+
 
         for s in proxied:
             setattr(cls, s, property(**make_encapsulators(s)))

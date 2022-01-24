@@ -77,7 +77,7 @@ class Grouper:
         self.__gen.send(None)
 
     def add(self, endp: Endpoint, bucket: str):
-        a_group = self.buckets.get(bucket).abs_group
+        a_group: AbstractGroup | None = getattr(self.buckets.get(bucket), "abs_group", None)
         route = endp.route
 
         if a_group:
