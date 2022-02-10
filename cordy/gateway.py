@@ -299,7 +299,7 @@ class GateWay:
         if self.resumable:
             await self.resume()
         else:
-            self._ratelimit.reset()
+            await self._ratelimit.reset()
             await self.identify()
 
     async def close(self):
@@ -319,7 +319,7 @@ class GateWay:
         self.loop.create_task(self.start_session())
 
     async def heartbeat(self, _: Msg):
-        self.send({
+        await self.send({
             "op": OpCodes.HEARTBEAT.value,
             "d": self._seq
         })
@@ -495,10 +495,6 @@ class BaseSharder(Protocol[S]):
     async def launch_shards(self) -> None:
         ...
 
-    def shard(self) -> None:
-        ...
-
-
 class Sharder(BaseSharder[Shard]):
     def __init__(self, client: Client) -> None:
         self.client = client
@@ -515,8 +511,11 @@ class Sharder(BaseSharder[Shard]):
 
         shards = []
 
-        for id_ in self.shard_ids:
-            shards.append(Shard(self.client, id_))
+        if self.shard_ids:
+            for id_ in self.shard_ids:
+                shards.append(Shard(self.client, id_))
+        else:
+            raise ValueError("Cannot create shards for client without shard ids")
 
         self.shards = shards
 
@@ -554,4 +553,3 @@ class SingleSharder(BaseSharder[Shard]):
         sd = self.shards[0]
 
         await sd.connect()
-

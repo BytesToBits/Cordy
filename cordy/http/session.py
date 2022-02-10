@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from ..util import Msg
     from .route import Endpoint
 
+GATEWAY = Route("GET", "/gateway").with_params()
+GATEWAY_BOT = Route("GET", "/gateway/bot").with_params()
+POST_MSG = Route("POST", "/channels/{channel_id}/messages")
 
 @final
 class HTTPSession:
@@ -38,7 +41,7 @@ class HTTPSession:
     def ws_connect(self, url: URL, **kwargs):
         return self.session.ws_connect(url, **kwargs)
 
-    async def _request(self, endp: Endpoint | Route, **kwargs):
+    async def _request(self, endp: Endpoint, **kwargs):
         if endp.url is None:
             raise ValueError(f"Used {type(endp)} instance with unformatted url")
 
@@ -62,20 +65,20 @@ class HTTPSession:
                 else:
                     return resp
 
-    def request(self, endp: Endpoint | Route, **kwargs):
+    def request(self, endp: Endpoint, **kwargs):
         return _RequestContextManager(self._request(endp, **kwargs))
 
     async def get_gateway(self) -> URL:
-        async with self.request(Route("GET", "/gateway")) as res:
+        async with self.request(GATEWAY) as res:
             return URL((await res.json(loads=util.loads))["url"])
 
     async def get_gateway_bot(self) -> Msg:
-        async with self.request(Route("GET", "/gateway/bot")) as resp:
+        async with self.request(GATEWAY_BOT) as resp:
             ret: Msg = await resp.json(loads=util.loads)
             return ret
 
     async def send_message(self, channel_id: int | str, content: str): # basic prototype not for use
-        async with self.request(Route("POST", "/channels/{channel_id}/messages") % dict(channel_id=channel_id), json=dict(content=content)) as res:
+        async with self.request(POST_MSG % dict(channel_id=channel_id), json=dict(content=content)) as res:
             return res
 
     async def close(self):

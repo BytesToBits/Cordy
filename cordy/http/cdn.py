@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar, Final, Literal
+from typing import ClassVar, Final, Literal, Sequence
 
 from yarl import URL
 
@@ -17,7 +17,7 @@ class CDNRoute:
     CDN: Final = URL("https://cdn.discordapp.com/")
 
     path: str
-    formats: tuple[str]
+    formats: Sequence[str]
 
     def __new__(cls, path: str):
         path = path.rpartition(".")[0].lstrip("/")

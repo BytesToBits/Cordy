@@ -115,7 +115,7 @@ class Client:
             The decorator.
         """
         def deco(func: CoroFn):
-            self.publisher.subscribe(name or func.__name__.lower(), func)
+            self.publisher.subscribe(func, name = name or func.__name__.lower())
             return func
         return deco
 
@@ -130,7 +130,7 @@ class Client:
             The name of the event. If :data:`None` then the
             name of the function is used, by default :data:`None`.
         """
-        return self.publisher.subscribe(name or func.__name__.lower(), func)
+        return self.publisher.subscribe(func, name = name or func.__name__.lower())
 
     def remove_listener(self, func: CoroFn, name: str = None) -> None:
         """Remove a registered listener.

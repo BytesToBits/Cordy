@@ -132,7 +132,7 @@ def _Filter_relayer(self: Filter):
 class Publisher:
     waiters: dict[str, set[tuple[asyncio.Future[tuple], CheckFn | None]]]
     listeners: dict[str, set[CoroFn]]
-    emitters: dict[Emitter, Generator[None, Event, None]]
+    emitters: dict[Emitter, Generator[None, None, None]]
 
     def __init__(self, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
         self.waiters = dict()
@@ -141,9 +141,8 @@ class Publisher:
         self.err_hdlr = error_hdlr
 
     async def _notify(self, event: Event) -> None:
-        in_lst = event.name in self.listeners
-        if in_lst:
-            aw = asyncio.gather(*(event.run(j, self.err_hdlr) for j in self.listeners[event.name]))
+        if event.name in self.listeners:
+            await asyncio.gather(*(event.run(j, self.err_hdlr) for j in self.listeners[event.name]))
 
         if event.name in self.waiters:
             for fut, check in self.waiters[event.name]:
@@ -152,9 +151,6 @@ class Publisher:
                         fut.set_result(*event.args)
                 else:
                     fut.set_result(*event.args)
-
-        if in_lst:
-            await aw
 
     def _notifier(self):
         event = yield
@@ -168,14 +164,14 @@ class Publisher:
         ...
 
     @overload
-    def subscribe(self, name: str) -> Callable[[CoroFn], CoroFn]:
+    def subscribe(self, *, name: str) -> Callable[[CoroFn], CoroFn]:
         ...
 
     @overload
-    def subscribe(self, name: str, func: CoroFn) -> None:
+    def subscribe(self, func: CoroFn, *, name: str = None, ) -> None:
         ...
 
-    def subscribe(self, name: str = None, func: CoroFn = None):
+    def subscribe(self, func: CoroFn = None, *, name: str = None) -> Callable[[CoroFn], CoroFn] | None:
         def decorator(fn: CoroFn) -> CoroFn:
             if not iscoroutinefunction(fn):
                 raise TypeError(f"Expected a coroutine function got {type(fn)}.")

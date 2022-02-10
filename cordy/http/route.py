@@ -90,7 +90,7 @@ class Route:
         ...
 
     @overload
-    def with_params(self,
+    def with_params(self, *,
                     channel_id: int = ...,
                     guild_id: int = ...,
                     webhook_id: int = ...,
@@ -100,5 +100,5 @@ class Route:
     def with_params(self, **params):
         return Endpoint(self, params) # type: ignore[arg-type] # because overload provided
 
-    def __mod__(self, params: dict[Parameters, int | str]) -> Endpoint:
-        return Endpoint(self, params)
+    def __mod__(self, params: dict[Parameters | str, int | str]) -> Endpoint:
+        return Endpoint(self, params) # type: ignore

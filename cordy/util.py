@@ -32,10 +32,9 @@ if TYPE_CHECKING:
         __slots__: Sequence[str]
         __mro__: tuple[type, ...]
 
-    C = TypeVar("C", bound=SlottedClass)
     K = TypeVar("K")
 
-def make_proxy_for(org_cls: C, /, *, attr: str, proxied_attrs: Iterable[str] = None, proxied_methods: Iterable[str] = None):
+def make_proxy_for(org_cls: SlottedClass, /, *, attr: str, proxied_attrs: Iterable[str] = None, proxied_methods: Iterable[str] = None):
     def deco(cls: K) -> K:
         def make_encapsulators(name: str):
             nonlocal attr
@@ -93,4 +92,7 @@ class Timer:
         return self
 
     def __exit__(self, *exc_info):
-        self.time -= perf_counter()
+        if self.time:
+            self.time -= perf_counter()
+        else:
+            raise ValueError("{type(sel)}")

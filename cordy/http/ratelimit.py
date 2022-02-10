@@ -191,7 +191,7 @@ class TimedLimiterProxy:
 
 if TYPE_CHECKING:
     from typing import cast
-    TimedLimiterProxy = cast(type[BaseLimiter], TimedLimiterProxy)
+    TimedLimiterProxy = cast(type[BaseLimiter], TimedLimiterProxy) # type: ignore[pyright]
 
 class Delayer:
     grouper: Grouper
@@ -213,6 +213,6 @@ class Delayer:
             limiter = LazyLimiter(self, endp)
 
         if timeout is not None and isinstance(timeout, float):
-            return TimedLimiterProxy(limiter, max_wait=timeout)
+            return TimedLimiterProxy(limiter, max_wait=timeout) # type: ignore[pyright]
 
         return limiter
