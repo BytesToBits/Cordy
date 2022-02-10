@@ -50,12 +50,12 @@ class CordyEnvBuilder(venv.EnvBuilder):
             # restore it and rewrite the configuration
             self.system_site_packages = True
             self.create_configuration(context)
-        if self.upgrade_deps:
+        if self.upgrade_deps: # type: ignore[pyright]
             self.upgrade_dependencies(context)
         self.setup_project_deps(context)
 
     def setup_project_global_poetry(self, context: SimpleNamespace) -> None:
-        sbp.stdout.write("Installing with poetry... (~0-300 sec)")
+        sys.stdout.write("Installing with poetry... (~0-300 sec)\n")
         try:
             sbp.run("poetry update".split(), check=True, stderr=sbp.STDOUT)
         except OSError:
