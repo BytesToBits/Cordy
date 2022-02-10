@@ -212,7 +212,7 @@ class Delayer:
         else:
             limiter = LazyLimiter(self, endp)
 
-        if timeout is not None and isinstance(timeout, float):
+        if timeout is not None and isinstance(timeout, float) and timeout > 0:
             return TimedLimiterProxy(limiter, max_wait=timeout) # type: ignore[pyright]
 
         return limiter

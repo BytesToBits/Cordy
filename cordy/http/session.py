@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import final, TYPE_CHECKING
+from typing import final, TYPE_CHECKING, overload
 
 from aiohttp import ClientSession
 from aiohttp.client import _RequestContextManager
@@ -10,6 +10,7 @@ from yarl import URL
 from .. import util
 from .ratelimit import Delayer
 from .route import Route
+
 
 if TYPE_CHECKING:
     from yarl import URL
@@ -41,13 +42,18 @@ class HTTPSession:
     def ws_connect(self, url: URL, **kwargs):
         return self.session.ws_connect(url, **kwargs)
 
-    async def _request(self, endp: Endpoint, **kwargs):
+    async def _request(self, endp: Endpoint, *, timeout: float = -1, **kwargs):
         if endp.url is None:
             raise ValueError(f"Used {type(endp)} instance with unformatted url")
 
+        timer = util.Timer()
+        # We use a timer to pre-emptively avoid waits if they go beyond timeout
+        # The logic is, failing early allows for a more responsive bot incase the request is ratelimited
+        # due to any reason, with asyncio.wait_for we would wait for the entire period till timeout
         while True:
+            timer.start()
             await self.global_limit.wait()
-            async with self.delayer.acquire(endp, timeout=kwargs.get("timeout")) as limit:
+            async with self.delayer.acquire(endp, timeout=timeout) as limit:
                 resp = await self.session._request(endp.method, endp.url, **kwargs)
                 hdrs = resp.headers
 
@@ -64,6 +70,8 @@ class HTTPSession:
                         self._loop.call_at(ts or 1, self.global_limit.set)
                 else:
                     return resp
+            timer.stop()
+            timeout -= timer.time # type: ignore # guaranteed to be float, nocast
 
     def request(self, endp: Endpoint, **kwargs):
         return _RequestContextManager(self._request(endp, **kwargs))

@@ -71,28 +71,23 @@ def make_proxy_for(org_cls: SlottedClass, /, *, attr: str, proxied_attrs: Iterab
     return deco
 
 class Timer:
-    """A context mangager to time code
-
-    Attributes
-    ==========
-    time : :class:`int`, :data:`None`, ``int | None``
-        The real time taken to exit the context manager.
-        when context manager has not exited it stores the value of
-        the performance counter used by :func:`time.perf_counter`
+    """A real time timer.
     """
-    __slots__ = ("time",)
+    __slots__ = ("_time",)
 
-    delta: None | int
+    _time: float | None
 
     def __init__(self) -> None:
-        self.time = None
+        self._time = None
 
-    def __enter__(self):
-        self.time = perf_counter()
+    def start(self):
+        self._time = perf_counter()
         return self
 
-    def __exit__(self, *exc_info):
-        if self.time:
-            self.time -= perf_counter()
-        else:
-            raise ValueError("{type(sel)}")
+    def stop(self) -> float:
+        try:
+            return self._time - perf_counter() # type: ignore
+        except TypeError:
+            raise ValueError("Cannot stop a timer which has not been started.")
+        finally:
+            self._time = None
