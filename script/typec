@@ -3,11 +3,12 @@
 import subprocess
 import sys
 
+
 if __name__ == "__main__":
     import pathlib
     pt = pathlib.Path(__file__).absolute().parents[1] / ".mypy_cache"
     try:
-        cmd = subprocess.run(["mypy", "-p", "cordy", "--cache_dir", str(pt)])
+        cmd = subprocess.run(["mypy", "-p", "cordy", "--cache-dir", str(pt)])
     except FileNotFoundError:
         print("mypy not found/installed")
         sys.exit(1)

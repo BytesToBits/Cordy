@@ -54,9 +54,33 @@ class CordyEnvBuilder(venv.EnvBuilder):
             self.upgrade_dependencies(context)
         self.setup_project_deps(context)
 
+    def setup_project_global_poetry(self, context: SimpleNamespace) -> None:
+        sbp.stdout.write("Installing with poetry... (~0-300 sec)")
+        try:
+            sbp.run("poetry update".split(), check=True, stderr=sbp.STDOUT)
+        except OSError:
+            raise Exception(1)
+        except sbp.CalledProcessError as err:
+            sys.stdout.write(f"Poetry failed with error code {err.returncode}\n")
+            try:
+                sbp.run("poetry install".split(), stderr=sbp.STDOUT)
+            except (OSError, sbp.CalledProcessError) as err:
+                sys.stdout.write("Something went wrong\n")
+                raise Exception(2) from err
+
     def setup_project_deps(self, context: SimpleNamespace) -> None:
         cmd = [context.env_exe, "-m"]
-        print(cmd)
+        # print(cmd)
+
+        try:
+            self.setup_project_global_poetry(context)
+        except Exception:
+            cont = input("Global poetry not usable/installed, install poetry in venv? (Y/n): ")[0].lower() in {"y", "t"}
+            if not cont:
+                sys.stdout.write("Exiting without dependencies installed\n")
+                return
+        else:
+            return
 
         sys.stdout.write("Installing Poetry...\n")
         sys.stdout.write("=========\n")
@@ -67,13 +91,13 @@ class CordyEnvBuilder(venv.EnvBuilder):
         sys.stdout.write("=========\n")
 
         try:
-            sbp.run(cmd + "poetry update".split(), check=True)
+            sbp.run(cmd + "poetry update".split(), check=True, stderr=sbp.STDOUT)
         except sbp.CalledProcessError as err:
             sys.stdout.write(f"Poetry failed with error code {err.returncode}\n")
             sys.stdout.write("Attempting cordy install instead ...\n")
 
             try:
-                sbp.run(cmd + "poetry install".split(), check=True)
+                sbp.run(cmd + "poetry install".split(), check=True, stderr=sbp.STDOUT)
             except sbp.CalledProcessError as err:
                 sys.stdout.write(f"Poetry failed with error code {err.returncode}\n")
                 sys.stdout.write("Broken poetry install detected\n")
