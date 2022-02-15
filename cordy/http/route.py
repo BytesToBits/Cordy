@@ -56,7 +56,7 @@ class Route:
     path: str
 
     _CACHE: ClassVar[dict[str, Route]] = {}
-    BASE: Final = URL(f'https://discord.com/api/v{API_VERSION}')
+    BASE: ClassVar[URL] = URL(f'https://discord.com/api/v{API_VERSION}')
 
     __slots__ = ("method", "path")
 
