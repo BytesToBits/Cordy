@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cordy.py"
-version = "0.1.0.dev3"
+version = "0.1.1.dev0"
 description = "A simple to use Discord API wrapper"
 authors = ["BytesToBits"]
 license = "MIT"

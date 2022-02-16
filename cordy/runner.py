@@ -16,14 +16,21 @@ if TYPE_CHECKING:
     from .client import Client
 
 __all__ = (
-    "run", "run_all"
+    "run", "run_all", "launch", "launch_all"
 )
 
 def _set_fut(fut: asyncio.Future):
     if not fut.done():
         fut.set_result(True)
 
-async def _run(client: Client):
+async def run(client: Client):
+    """Start a client and await till it is stopped
+
+    Parameters
+    ----------
+    client : :class:`cordy.client.Client`
+        The Client to be ran.
+    """
     loop = asyncio.get_running_loop()
     fut = loop.create_future()
     client._closed_cb = partial(_set_fut, fut)
@@ -34,11 +41,18 @@ async def _run(client: Client):
     finally:
         await client.close()
 
-async def _run_all(clients: Iterable[Client]):
-    loop = asyncio.get_running_loop()
-    await asyncio.gather(*(loop.create_task(_run(client)) for client in set(clients)))
+async def run_all(clients: Iterable[Client]):
+    """Start multiple clients and await till all have stopped.
 
-def run(client: Client):
+    Parameters
+    ----------
+    clients : Iterable[:class:`cordy.client.Client`]
+        The iterable of clients to be ran.
+    """
+    loop = asyncio.get_running_loop()
+    await asyncio.gather(*(loop.create_task(run(client)) for client in set(clients)))
+
+def launch(client: Client):
     """Run the client until it is closed.
     Cleanup due to unforseen cancellation is handled.
 
@@ -47,18 +61,18 @@ def run(client: Client):
     client : :class:`~cordy.client.Client`
         The client to run.
     """
-    return run_loop(_run(client))
+    return run_loop(run(client))
 
-def run_all(clients: Iterable[Client]):
-    """Run all the given clients util all clients are closed.
+def launch_all(clients: Iterable[Client]):
+    """launch all the given clients util all clients are closed.
     Cleanup for each client due to unforseen cancellation is handled.
 
     Parameters
     ----------
     clients : Iterable[:class:`~cordy.client.Client`]
-        All the clients to run.
+        All the clients to launch.
     """
-    return run_loop(_run_all(clients))
+    return run_loop(run_all(clients))
 
 # Proactor Transport require open event loop.
 DEFAULT_CLOSE = not sys.platform.startswith("win")
