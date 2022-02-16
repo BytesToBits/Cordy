@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from logging import getLogger
 from time import time
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable, ClassVar
 from dataclasses import dataclass
 
 from ..errors import RateLimitTooLong
@@ -190,8 +190,8 @@ class TimedLimiterProxy:
         return self._limiter.__aexit__(*exc_info)
 
 if TYPE_CHECKING:
-    from typing import cast
-    TimedLimiterProxy = cast(type[BaseLimiter], TimedLimiterProxy) # type: ignore[pyright]
+    from typing import cast, Type
+    TimedLimiterProxy = cast(Type[BaseLimiter], TimedLimiterProxy) # type: ignore[assignment, misc]
 
 class Delayer:
     grouper: Grouper
@@ -213,6 +213,6 @@ class Delayer:
             limiter = LazyLimiter(self, endp)
 
         if timeout is not None and isinstance(timeout, float) and timeout > 0:
-            return TimedLimiterProxy(limiter, max_wait=timeout) # type: ignore[pyright]
+            return TimedLimiterProxy(limiter, max_wait=timeout) # type: ignore[return-value, pyright]
 
         return limiter

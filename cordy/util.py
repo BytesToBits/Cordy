@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Union
 import inspect
 from time import perf_counter
 from itertools import chain
@@ -23,19 +23,8 @@ Msg = dict[str, Any]
 loads: Callable[[str], Any] = json.loads # Any allows custom type without cast
 dumps: Callable[[Json], str] = lambda dat: json.dumps(dat, separators=(',', ':'))
 
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from typing import Protocol
-
-    class SlottedClass(Protocol):
-        __slots__: Sequence[str]
-        __mro__: tuple[type, ...]
-
-    K = TypeVar("K")
-
-def make_proxy_for(org_cls: SlottedClass, /, *, attr: str, proxied_attrs: Iterable[str] = None, proxied_methods: Iterable[str] = None):
-    def deco(cls: K) -> K:
+def make_proxy_for(org_cls, /, *, attr: str, proxied_attrs: Iterable[str] = None, proxied_methods: Iterable[str] = None):
+    def deco(cls):
         def make_encapsulators(name: str):
             nonlocal attr
 

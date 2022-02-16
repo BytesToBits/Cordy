@@ -67,7 +67,7 @@ class HTTPSession:
                             limit.delay_till(float(ts), buc)
                     else:
                         self.global_limit
-                        self._loop.call_at(ts or 1, self.global_limit.set)
+                        self._loop.call_at(float(ts or 1), self.global_limit.set)
                 else:
                     return resp
             timer.stop()
