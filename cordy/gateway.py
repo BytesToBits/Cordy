@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import zlib
+from abc import ABC, abstractmethod
 from enum import IntEnum
 from math import ceil
 from math import log10 as _log
@@ -240,7 +241,7 @@ class GateWay:
         if self._closed:
             raise ValueError("GateWay instance already closed")
 
-        if self.ws.closed:
+        if hasattr(self, "ws") and self.ws.closed:
             await self.disconnect(message=b"Reconnecting")
 
         url = url or self._url or await self.session.get_gateway()
@@ -397,7 +398,7 @@ class GateWay:
                 "properties": self._PROPS,
                 "intents": self.intents.value,
                 # "compress": True,
-                "shard": (self.shard_id, self.client.num_shards)
+                "shard": (self.shard_id, self.client.sharder.num_shards)
             }
         }
 
@@ -502,13 +503,11 @@ class Shard:
     def latency(self) -> float:
         return self.gateway._tracker.latency
 
-S = TypeVar("S")
 
-@runtime_checkable
-class BaseSharder(Protocol[S]):
+class BaseSharder(ABC):
     client: Client
     _url: URL | None
-    shards: list[S]
+    shards: list[Shard]
     shard_ids: set[int] | None
     num_shards: int | None
 
@@ -522,14 +521,15 @@ class BaseSharder(Protocol[S]):
         if shard_ids is None and num_shards is not None:
             shard_ids = set(range(num_shards))
 
-        self.shards = list[S]()
+        self.shards = []
         self.shard_ids = shard_ids
         self.num_shards = num_shards
 
+    @abstractmethod
     async def launch_shards(self) -> None:
         ...
 
-class Sharder(BaseSharder[Shard]):
+class Sharder(BaseSharder):
     async def launch_shards(self):
         data = await self.client.http.get_gateway_bot() # Get the Url once
         self.num_shards = self.num_shards or data["shards"]
@@ -551,7 +551,7 @@ class Sharder(BaseSharder[Shard]):
 
         await asyncio.wait([asyncio.create_task(runner(sd, buckets[sd % max_conc])) for sd in self.shard_ids])
 
-class SingleSharder(BaseSharder[Shard]):
+class SingleSharder(BaseSharder):
     async def launch_shards(self) -> None:
         self.shards = [await Shard.make_shard(self.client, 0)] # The gateway shall fetch the url here
 

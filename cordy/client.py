@@ -69,7 +69,7 @@ class Client:
 
     def __init__(
         self, token: StrOrToken, *,
-        intents: Intents | None = None, sharder_cls: type[BaseSharder[Shard]] = Sharder,
+        intents: Intents | None = None, sharder_cls: type[BaseSharder] = Sharder,
         num_shards: int | None = None, shard_ids: Sequence[int] | None = None
     ):
         self.intents = intents or Intents.default()
