@@ -551,59 +551,9 @@ class Sharder(BaseSharder[Shard]):
 
         await asyncio.wait([asyncio.create_task(runner(sd, buckets[sd % max_conc])) for sd in self.shard_ids])
 
-    # async def create_shards(self):
-    #     if not self.num_shards:
-    #         # don't cache the session limit
-    #         # coz delay till launch is unknown
-    #         data = await self.client.http.get_gateway_bot()
-    #         self.client.num_shards = data["shards"]
-    #         self.client.shard_ids = self.shard_ids or set(range(data["shards"]))
-
-    #     shards = []
-
-    #     if self.shard_ids:
-    #         for id_ in self.shard_ids:
-    #             shards.append(await Shard.make_shard(self.client, id_))
-    #     else:
-    #         raise ValueError("Cannot create shards for client without shard ids")
-
-    #     self.shards = shards
-
-    # async def launch_shards(self) -> None:
-    #     if not self.shards:
-    #         await self.create_shards()
-    #     url = self._url
-    #     loop = asyncio.get_event_loop()
-
-    #     # session object can't be cached
-    #     data = await self.client.http.get_gateway_bot()
-
-    #     if not url:
-    #         url = URL(data["url"])
-
-    #     limit = data["session_start_limit"]
-
-    #     max_conc: int = limit["max_concurrency"]
-
-    #     buckets = [asyncio.Lock() for _ in range(max_conc)]
-
-    #     async def runner(sd: Shard, lock: Lock):
-    #         async with lock:
-    #             await Shard.make_shard
-
-    #     await asyncio.wait([loop.create_task(runner(sd, buckets[sd.shard_id % max_conc])) for sd in range(data["shards"])])
-
 class SingleSharder(BaseSharder[Shard]):
-    async def create_shards(self) -> None:
-        self.shards = [await Shard.make_shard(self.client, 0)]
+    async def launch_shards(self) -> None:
+        self.shards = [await Shard.make_shard(self.client, 0)] # The gateway shall fetch the url here
 
         self.client.num_shards = 1
-        self.client.shard_ids = {0,} #
-
-    async def launch_shards(self) -> None:
-        if not self.shards:
-            await self.create_shards()
-
-        sd = self.shards[0]
-
-        await sd.connect()
+        self.client.shard_ids = {0,}
