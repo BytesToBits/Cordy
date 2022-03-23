@@ -69,8 +69,8 @@ class Client:
 
     def __init__(
         self, token: StrOrToken, *,
-        intents: Intents = None, sharder_cls: type[BaseSharder[Shard]] = Sharder,
-        num_shards: int = None, shard_ids: Sequence[int] = None
+        intents: Intents | None = None, sharder_cls: type[BaseSharder[Shard]] = Sharder,
+        num_shards: int | None = None, shard_ids: Sequence[int] | None = None
     ):
         self.intents = intents or Intents.default()
         self.token = token if isinstance(token, Token) else Token(token, bot=True)
@@ -80,17 +80,7 @@ class Client:
         self.publisher.add(self.emitter)
         self.http = HTTPSession(self.token)
 
-        if shard_ids is not None and num_shards is None:
-            raise ValueError("Must provide num_shards if shard ids are provided.")
-
-        if shard_ids is None and num_shards is not None:
-            shard_ids = list(range(num_shards))
-
-        self.shard_ids = set(shard_ids) if shard_ids else None
-        self.num_shards = num_shards
-
-        # May manipulate client attributes
-        self.sharder = sharder_cls(self)
+        self.sharder = sharder_cls(self, set(shard_ids) if shard_ids else None, num_shards)
         self._closed_cb: Callable | None = None
         self._closed: bool = False
 
@@ -99,7 +89,7 @@ class Client:
         "list[:class:`~cordy.gateway.Shard`] : All the shards under this client"
         return self.sharder.shards
 
-    def listen(self, name: str = None) -> Callable[[CoroFn], CoroFn]:
+    def listen(self, name: str | None = None) -> Callable[[CoroFn], CoroFn]:
         """This method is used as a decorator.
         Add the decorated function as a listener for the specified event
 
@@ -119,7 +109,7 @@ class Client:
             return func
         return deco
 
-    def add_listener(self, func: CoroFn, name: str = None) -> None:
+    def add_listener(self, func: CoroFn, name: str | None = None) -> None:
         """Add a listener for the given event.
 
         Parameters
@@ -132,7 +122,7 @@ class Client:
         """
         return self.publisher.subscribe(func, name = name or func.__name__.lower())
 
-    def remove_listener(self, func: CoroFn, name: str = None) -> None:
+    def remove_listener(self, func: CoroFn, name: str | None = None) -> None:
         """Remove a registered listener.
         If the listener or event is not found, then does nothing.
 
@@ -146,7 +136,7 @@ class Client:
         """
         return self.publisher.unsubscribe(func, name)
 
-    async def wait_for(self, name: str, timeout: int = None, check: CheckFn = None) -> tuple[Any, ...]:
+    async def wait_for(self, name: str, timeout: int | None = None, check: CheckFn | None = None) -> tuple[Any, ...]:
         """Wait for an event to occur.
 
         Parameters
@@ -191,7 +181,6 @@ class Client:
             raise ValueError("Can't connect with a closed client.")
 
         await self.setup()
-        await self.sharder.create_shards()
         await self.sharder.launch_shards()
 
     async def disconnect(self, *, code: int = 4000, message: str = "") -> None:

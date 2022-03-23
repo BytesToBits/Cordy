@@ -77,7 +77,7 @@ def launch_all(clients: Iterable[Client]):
 # Proactor Transport require open event loop.
 DEFAULT_CLOSE = not sys.platform.startswith("win")
 
-def run_loop(coro, *, close: bool = DEFAULT_CLOSE, debug: bool = None):
+def run_loop(coro, *, close: bool = DEFAULT_CLOSE, debug: bool | None = None):
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:

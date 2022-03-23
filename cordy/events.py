@@ -4,13 +4,14 @@ import asyncio
 import types
 from collections.abc import Coroutine, Generator
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, Callable, Protocol, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Callable, Protocol, TypeVar, overload
 
 if TYPE_CHECKING:
     EV = TypeVar("EV", contravariant=True)
+    from typing import Any
 
     class Observer(Protocol[EV]):
-        def __call__(self, event: EV) -> None:
+        def __call__(self, event: EV) -> None | Any:
             ...
 
 __all__ = (
@@ -58,7 +59,7 @@ class Event:
         self.name = _clean_event(name)
         self.args = args
 
-    async def run(self, coro: CoroFn, err_hdlr: Callable[[Exception], Coroutine] = None) -> None:
+    async def run(self, coro: CoroFn, err_hdlr: Callable[[Exception], Coroutine] | None = None) -> None:
         try:
             await coro(*self.args)
         except asyncio.CancelledError:
@@ -134,7 +135,7 @@ class Publisher:
     listeners: dict[str, set[CoroFn]]
     emitters: dict[Emitter, Generator[None, None, None]]
 
-    def __init__(self, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
+    def __init__(self, error_hdlr: Callable[[Exception], Coroutine] | None = None) -> None:
         self.waiters = dict()
         self.listeners = dict()
         self.emitters = dict()
@@ -152,6 +153,8 @@ class Publisher:
                 else:
                     fut.set_result(*event.args)
 
+        return None
+
     def _notifier(self):
         event = yield
 
@@ -168,10 +171,14 @@ class Publisher:
         ...
 
     @overload
-    def subscribe(self, func: CoroFn, *, name: str = None, ) -> None:
+    def subscribe(self, func: CoroFn, *, name: str) -> None:
         ...
 
-    def subscribe(self, func: CoroFn = None, *, name: str = None) -> Callable[[CoroFn], CoroFn] | None:
+    @overload
+    def subscribe(self, func: None, *, name: str) -> Callable[[CoroFn], CoroFn]:
+        ...
+
+    def subscribe(self, func: CoroFn | None = None, *, name: str | None = None) -> Callable[[CoroFn], CoroFn] | None:
         def decorator(fn: CoroFn) -> CoroFn:
             if not iscoroutinefunction(fn):
                 raise TypeError(f"Expected a coroutine function got {type(fn)}.")
@@ -187,8 +194,9 @@ class Publisher:
             return decorator
         else:
             decorator(func)
+            return None
 
-    def unsubscribe(self, listener: CoroFn, name: str = None) -> None:
+    def unsubscribe(self, listener: CoroFn, name: str | None = None) -> None:
         ev_listeners = self.listeners.get(_clean_event(name or listener.__name__.lower()))
         try:
             if ev_listeners:
@@ -196,7 +204,7 @@ class Publisher:
         except KeyError:
             return
 
-    async def wait_for(self, name: str, timeout: int = None, check: CheckFn = None) -> tuple:
+    async def wait_for(self, name: str, timeout: int | None = None, check: CheckFn | None = None) -> tuple:
         name = _clean_event(name)
         ev_waiters = self.waiters.get(name)
         if ev_waiters is None:
@@ -238,7 +246,7 @@ class Publisher:
 #   subscribing for particular event
 # Cons - Narrow use case, overhead reduction is low.
 class SourcedPublisher(Publisher, Emitter):
-    def __init__(self, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
+    def __init__(self, error_hdlr: Callable[[Exception], Coroutine] | None = None) -> None:
         super().__init__(error_hdlr=error_hdlr)
         Emitter.__init__(self)
 
@@ -250,7 +258,7 @@ class SourcedPublisher(Publisher, Emitter):
         asyncio.create_task(self._notify(event))
 
 class FilteredPublisher(SourcedPublisher, Filter):
-    def __init__(self, filter_fn: FilterFn, source: Emitter, error_hdlr: Callable[[Exception], Coroutine] = None) -> None:
+    def __init__(self, filter_fn: FilterFn, source: Emitter, error_hdlr: Callable[[Exception], Coroutine] | None = None) -> None:
         super().__init__(error_hdlr=error_hdlr)
         Filter.__init__(self, filter_fn, source)
 

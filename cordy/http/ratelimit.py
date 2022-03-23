@@ -201,7 +201,7 @@ class Delayer:
         self.grouped_buckets = {}
         self.grouper = Grouper()
 
-    def acquire(self, endp: Endpoint, timeout: float = None) -> BaseLimiter:
+    def acquire(self, endp: Endpoint, timeout: float | None = None) -> BaseLimiter:
         a_group = self.grouper.group_map.get(endp.route)
 
         if a_group:

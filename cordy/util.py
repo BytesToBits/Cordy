@@ -23,7 +23,7 @@ Msg = dict[str, Any]
 loads: Callable[[str], Any] = json.loads # Any allows custom type without cast
 dumps: Callable[[Json], str] = lambda dat: json.dumps(dat, separators=(',', ':'))
 
-def make_proxy_for(org_cls, /, *, attr: str, proxied_attrs: Iterable[str] = None, proxied_methods: Iterable[str] = None):
+def make_proxy_for(org_cls, /, *, attr: str, proxied_attrs: Iterable[str] | None = None, proxied_methods: Iterable[str] | None = None):
     def deco(cls):
         def make_encapsulators(name: str):
             nonlocal attr
