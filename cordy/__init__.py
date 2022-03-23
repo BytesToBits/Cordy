@@ -7,5 +7,5 @@ from .models import *
 from .gateway import *
 from .runner import *
 
-__version__ = version("cordy")
+__version__ = version("cordy.py")
 del version
