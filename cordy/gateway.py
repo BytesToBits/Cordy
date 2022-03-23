@@ -396,7 +396,7 @@ class GateWay:
                 "token": self.token.token,
                 "properties": self._PROPS,
                 "intents": self.intents.value,
-                "compress": True,
+                # "compress": True,
                 "shard": (self.shard_id, self.client.num_shards)
             }
         }
