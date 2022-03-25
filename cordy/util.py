@@ -17,7 +17,7 @@ __all__ = (
 )
 
 # Swappable json encoders and decoders to be used in the library
-Json = Union[dict[str, Any], list[Union[dict[str, Any], Any]]]
+Json = dict[str, Any]
 Msg = dict[str, Any]
 
 loads: Callable[[str], Any] = json.loads # Any allows custom type without cast

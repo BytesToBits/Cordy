@@ -9,17 +9,15 @@ from math import ceil
 from math import log10 as _log
 from sys import platform
 from time import perf_counter
-from typing import (TYPE_CHECKING, Callable, ClassVar, Protocol, TypeVar,
-                    runtime_checkable)
+from typing import TYPE_CHECKING, Callable, ClassVar
 
 import aiohttp
 import uprate as up
 from aiohttp import WSMsgType
 from yarl import URL
 
+from cordy import util  # util.loads, dumps
 from cordy.events import Event, SourcedPublisher
-
-from . import util
 
 if TYPE_CHECKING:
     from asyncio.futures import Future
@@ -27,9 +25,10 @@ if TYPE_CHECKING:
     from asyncio.tasks import Task
     from typing import Any
 
-    from .client import Client
-    from .types import Dispatch, Payload
-    from .util import Msg
+    from cordy.client import Client
+    from cordy.types import (Dispatch, Heartbeat, HeartBeatAck, Hello,
+                             InvalidSession, Payload)
+    from cordy.util import Msg
 
     method_map: dict[int, Callable[[GateWay, Payload], Any]]
 
@@ -337,7 +336,7 @@ class GateWay:
         self._closed = True
         await self.disconnect(code=1001)
 
-    async def hello(self, msg: Msg):
+    async def hello(self, msg: Hello):
         self._interval = msg["d"]["heartbeat_interval"] / 1000
 
         if self._interval: # Dynamic heartbeat reserving
@@ -349,7 +348,7 @@ class GateWay:
         self._beater = self.loop.create_task(self.heartbeater())
         self.loop.create_task(self.start_session())
 
-    async def heartbeat(self, _: Msg):
+    async def heartbeat(self, _: Heartbeat):
         await self.send({
             "op": OpCodes.HEARTBEAT.value,
             "d": self._seq
@@ -377,7 +376,7 @@ class GateWay:
                 # 100 ms tolerance for system+connection latency
                 await asyncio.sleep(self._interval - ack_latency - 0.1)
 
-    async def heartbeat_ack(self, _: Msg) -> None:
+    async def heartbeat_ack(self, _: HeartBeatAck) -> None:
         if self._ack_fut is None: # this should not happen
             fut = self.loop.create_future()
             self._ack_fut = fut
@@ -413,7 +412,7 @@ class GateWay:
                 "seq": self._seq
         }})
 
-    async def invalid_session(self, msg: Msg) -> None:
+    async def invalid_session(self, msg: InvalidSession) -> None:
         self._resume = msg["d"]
         self._reconnect = False # exit listener
 
