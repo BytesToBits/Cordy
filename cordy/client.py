@@ -199,7 +199,7 @@ class Client:
         for shard in self.shards:
             await shard.disconnect(code=code, message=message)
 
-        logger.info("Shards %s disconnected from gateway", self.shard_ids)
+        logger.info("Shards %s disconnected from gateway", self.sharder.shard_ids)
 
     async def reconnect(self) -> None:
         """Reconnect all shards to the gateway
@@ -210,7 +210,7 @@ class Client:
         for shard in self.shards:
             await shard.reconnect()
 
-        logger.info("Shards %s reconnected to gateway", self.shard_ids)
+        logger.info("Shards %s reconnected to gateway", self.sharder.shard_ids)
 
     async def close(self) -> None:
         """Close the client permanently.
