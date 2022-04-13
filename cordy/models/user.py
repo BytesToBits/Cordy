@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from cordy.http import HTTPSession
+
+from ..types import User as UserP
 from .flags import FrozenFlag as FF
 from .flags import FrozenFlags
+from .snowflake import Resource
 
 
 class UserFlags(FrozenFlags):
@@ -40,3 +46,47 @@ class UserFlags(FrozenFlags):
     """:class:`bool`: Discord certified moderator"""
     interaction_bot = FF(1 << 19)
     """:class:`bool`: The bot exclusively uses http interactions"""
+
+"""Many wrappers use a third constant for representing missing
+We might add that later, it would be nice to just use Ellipsis though
+after types.EllipsisType got added."""
+
+# Once the http session defines user related routes we can subclass this into a User and ClientUser
+# while obeying LSP
+@dataclass(eq=False)
+class BaseUser(Resource):
+    __slots__ = (
+        "name",
+        "discriminator",
+        "avatar",
+
+        "bot",
+        "banner",
+        "accent_color",
+        "flags",
+        # "_http"
+    )
+
+    name: str
+    discriminator: str
+    avatar: str | None
+
+    bot: bool | None
+    banner: str | None
+    accent_color: int | None
+    flags: UserFlags | None
+
+    # _http: HTTPSession
+
+    def __init__(self, data: UserP, http: HTTPSession):
+        Resource.__init__(self, data["id"])
+        self.name = data["username"]
+        self.discriminator = data["discriminator"]
+        self.avatar = data["avatar"]
+
+        self.bot = data.get("bot")
+        self.banner = data.get("banner")
+        self.accent_color = data.get("accent_color")
+        self.flags = UserFlags(data.get("flags") or data.get("public_flags"))
+
+        # self._http = http

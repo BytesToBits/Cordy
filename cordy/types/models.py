@@ -11,13 +11,15 @@ class TotalUser(TypedDict):
 class User(TotalUser, total=False):
     bot: bool
     system: bool
-    mfa_enables: bool
     banner: str | None
     accent_color: int | None
-    locale: str
     flags: int
-    premium_type: int
     public_flags: int
+
+    # oauth only
+    mfa_enabled: bool
+    locale: str
+    premium_type: int
 
     # needs email scope
     email: str | None
