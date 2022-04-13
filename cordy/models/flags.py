@@ -77,7 +77,10 @@ class IntFlags: # For intents
         inst.value = value
         return cls
 
+# This returns None so be careful
 class FrozenFlags(int): # Read-Only, for user flags
+    __slots__ = ()
+
     def __new__(cls, data: int | None = None):
         if data is not None:
             return super().__new__(cls, data)
