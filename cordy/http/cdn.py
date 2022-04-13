@@ -39,7 +39,7 @@ class CDNRoute:
             raise ValueError("Invalid format provided")
         try:
             # ignore because we are handling invalid key
-            return self.BASE / (self.path.format_map(params) + "." + format) # type: ignore[arg-type]
+            return self.CDN / (self.path.format_map(params) + "." + format) # type: ignore[arg-type]
         except KeyError as err:
             raise ValueError("All arguments needed for cdn-route not provided") from err
 
