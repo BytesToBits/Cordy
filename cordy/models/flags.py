@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar, Literal, Union
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, Union, overload
 
 __all__ = (
     "Flag",
@@ -18,6 +18,7 @@ def populate_flags(cls):
 
     return cls
 
+
 class Flag:
     __slots__ = ("value",)
 
@@ -31,6 +32,7 @@ class Flag:
 
     def __set__(self, inst, value: AnyBitLike) -> None:
         inst.value = (inst.value & ~self.value) | (self.value * (value & 1))
+
 
 class IntFlags: # For intents
     FLAGS: ClassVar[dict[str, int]]
@@ -77,16 +79,36 @@ class IntFlags: # For intents
         inst.value = value
         return cls
 
+
 # This returns None so be careful
 class FrozenFlags(int): # Read-Only, for user flags
     __slots__ = ()
 
-    def __new__(cls, data: int | None = None):
+    @overload
+    def __new__(cls: type[S], data: int) -> S:
+        ...
+
+    @overload
+    def __new__(cls: type[S], data: None) -> None: # type: ignore[misc]
+        ...
+
+    @overload
+    def __new__(cls: type[S]) -> None: # type: ignore[misc]
+        ...
+
+    @overload
+    def __new__(cls: type[S], data: str | bytes | bytearray) -> S:
+        ...
+
+    def __new__(cls, data: int | None | str | bytes | bytearray = None):
         if data is not None:
             return super().__new__(cls, data)
 
     def __getitem__(self, index: int) -> bool:
         return bool(self & (1 << index))
+
+S = TypeVar("S", bound=FrozenFlags)
+
 
 class FrozenFlag:
     __slots__ = ("value",)

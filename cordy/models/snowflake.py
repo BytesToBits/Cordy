@@ -42,7 +42,7 @@ class Resource:
 
     __slots__ = ("id",)
 
-    def __init__(self, id: int):
+    def __init__(self, id: str):
         self.id = Snowflake(id)
 
     def __repr__(self) -> str:
