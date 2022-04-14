@@ -11,6 +11,8 @@ from .snowflake import Resource
 
 
 class UserFlags(FrozenFlags):
+    __slots__ = ()
+
     staff = FF(1)
     """:class:`bool`: A discord employee"""
     partner = FF(1 << 1)
@@ -78,7 +80,9 @@ class BaseUser(Resource):
 
     # _http: HTTPSession
 
-    def __init__(self, data: UserP, http: HTTPSession):
+    @classmethod
+    def from_data(cls, data: UserP, http: HTTPSession):
+        self = object.__new__(cls)
         Resource.__init__(self, data["id"])
         self.name = data["username"]
         self.discriminator = data["discriminator"]
