@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import final, TYPE_CHECKING, overload
+from typing import final, TYPE_CHECKING
+from time import time
 
 from aiohttp import ClientSession
 from aiohttp.client import _RequestContextManager
@@ -57,35 +58,44 @@ class HTTPSession:
                 resp = await self.session._request(endp.method, endp.url, **kwargs)
                 hdrs = resp.headers
 
-                if resp.status == 429:
+                buc = hdrs.get("X-RateLimit-Bucket")
+                rem = hdrs.get("X-RateLimit-Remaining")
+
+                if resp.status == 429 or int(rem or -1) == 0:
                     is_global = hdrs.get("X-RateLimit-Global")
-                    buc = hdrs.get("X-RateLimit-Bucket")
                     ts = hdrs.get("X-RateLimit-Reset")
 
                     if not is_global:
                         if ts:
                             limit.delay_till(float(ts), buc)
                     else:
-                        self.global_limit
-                        self._loop.call_at(float(ts or 1), self.global_limit.set)
+                        self.global_limit.clear()
+                        now = time()
+                        self._loop.call_later(float(ts or now) - now, self.global_limit.set)
                 else:
+                    # discover route <-> bucket relation
+                    if buc:
+                        self.delayer.grouper.add(endp, buc)
                     return resp
-            timer.stop()
-            timeout -= timer.time # type: ignore # guaranteed to be float, nocast
+            timeout -= timer.stop() # type: ignore # guaranteed to be float, nocast
 
-    def request(self, endp: Endpoint, **kwargs):
+    # return annotation fixes mypy
+    def request(self, endp: Endpoint, **kwargs) -> _RequestContextManager:
         return _RequestContextManager(self._request(endp, **kwargs))
 
-    async def get_gateway(self) -> URL:
+    # why does pyright say the return type is Ret | None for these 3?
+    # might disable pyright type checking in next related commit and turn on warn unused ignore in mypy
+    async def get_gateway(self) -> URL: # type: ignore[pyright]
         async with self.request(GATEWAY) as res:
             return URL((await res.json(loads=util.loads))["url"])
 
-    async def get_gateway_bot(self) -> Msg:
+    async def get_gateway_bot(self) -> Msg: # type: ignore[pyright]
         async with self.request(GATEWAY_BOT) as resp:
             ret: Msg = await resp.json(loads=util.loads)
             return ret
 
-    async def send_message(self, channel_id: int | str, content: str): # basic prototype not for use
+    # NOTFORUSE
+    async def send_message(self, channel_id: int | str, content: str) -> ClientResponse: # type: ignore[pyright]
         async with self.request(POST_MSG % dict(channel_id=channel_id), json=dict(content=content)) as res:
             return res
 

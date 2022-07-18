@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from logging import getLogger
 from time import time
-from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable, ClassVar
+from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
 from dataclasses import dataclass
 
 from ..errors import RateLimitTooLong
@@ -24,6 +24,8 @@ def _id_gen(initial: int):
 
 # Group of routes which share the same ratelimit
 # per major parameters
+
+# TLDR; routes which have same x-ratelimit-bucket
 @dataclass
 class AbstractGroup:
     routes: set[Route]
@@ -37,10 +39,13 @@ class AbstractGroup:
         self.routes.add(route)
 
     def make_hash_for(self, endp: Endpoint) -> str:
+        assert endp.route in self.routes, "hash made or endpoint not contained in abstract group"
         return hex(self.ident) + ":" + endp.param_hash
 
-# A group of endpoints which share the same ratelimit
-# bucket
+# UNUSED TOREMOVE?
+# A group of endpoints which share the same ratelimit bucket
+#
+# TLDR; x-ratelimit-bucket + route parameters
 @dataclass
 class Group:
     abs_group: AbstractGroup
@@ -66,9 +71,11 @@ class Group:
 # requiring same major parameters and methods.
 # Allows for pre-emptive detection of ratelimit exhaustion
 # on an endpoint
+#
+# TLDR; Uses x-ratelimit-bucket
 class Grouper:
     group_map: dict[Route, AbstractGroup]
-    buckets: dict[str, Group]
+    buckets: dict[str, AbstractGroup]
 
     def __init__(self) -> None:
         self.group_map = {}
@@ -76,8 +83,8 @@ class Grouper:
         self.__gen = _id_gen(1)
         self.__gen.send(None)
 
-    def add(self, endp: Endpoint, bucket: str):
-        a_group: AbstractGroup | None = getattr(self.buckets.get(bucket), "abs_group", None)
+    def add(self, endp: Endpoint, bucket: str) -> AbstractGroup:
+        a_group: AbstractGroup | None = self.buckets.get(bucket)
         route = endp.route
 
         if a_group:
@@ -85,17 +92,23 @@ class Grouper:
                 a_group.add(route)
                 self.group_map[route] = a_group
         else:
+            # check if route is already mapped
             a_group = self.group_map.get(route)
 
-            if a_group:
-                self.buckets[bucket] = Group(a_group, endp.param_hash)
-            else:
+            if not a_group: # if not then make new abstract group
                 a_group = AbstractGroup(self.__gen.send(None))
-                self.buckets[bucket] = Group(a_group, endp.param_hash)
+                a_group.add(route)
+                self.group_map[route] = a_group
 
-            a_group.add(route)
-            self.group_map[route] = a_group
+            # either way this abstract group now has two (or more) buckets
+            # or it's bucket hash changed due to some reason,
+            # we need to map new bucket hash to old group which is hopefully safe
+            # TOCHECK: Does a bucket hash ever change?
+            self.buckets[bucket] = a_group
 
+        return a_group
+
+    # UNUSED TOREMOVE?
     def get_group(self, endp: Endpoint) -> Group:
         a_group = self.group_map[endp.route]
 
@@ -154,9 +167,7 @@ class LazyLimiter(Limiter):
 
         delayer = self.delayer
         grouper = delayer.grouper
-        grouper.add(self.endp, bucket)
-        abs_group = grouper.group_map[self.endp.route]
-        param_hash = abs_group.make_hash_for(self.endp)
+        param_hash = grouper.add(self.endp, bucket).make_hash_for(self.endp)
 
         bucket_limiter = delayer.grouped_buckets.get(param_hash)
 
@@ -198,6 +209,7 @@ class Delayer:
     grouped_buckets: dict[str, Limiter]
 
     def __init__(self) -> None:
+        # TODO:: Make time based expiring dict to keep size in check
         self.grouped_buckets = {}
         self.grouper = Grouper()
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 import inspect
 from time import perf_counter
 from itertools import chain
@@ -60,7 +60,7 @@ def make_proxy_for(org_cls, /, *, attr: str, proxied_attrs: Iterable[str] | None
     return deco
 
 class Timer:
-    """A real time timer.
+    """A perf_counter based timer.
     """
     __slots__ = ("_time",)
 
@@ -70,10 +70,12 @@ class Timer:
         self._time = None
 
     def start(self):
+        """Start measuring elapsed time til; :method:`.stop` is called."""
         self._time = perf_counter()
         return self
 
     def stop(self) -> float:
+        """Return elapsed time since last call to :method:`.start`"""
         try:
             return self._time - perf_counter() # type: ignore
         except TypeError:
