@@ -10,7 +10,7 @@ We have a code of conduct to ensure appropriate behavior [here](https://github.c
 
 We will be glad to have you make your first contribution to cordy!
 You can check 1st contribution issues [here](https://github.com/BytesToBits/Cordy/contribute) or
-you can join the [discord](https://discord.gg/kETeDB3) to discuss.
+you can join the [discord](https://discord.gg/8akycDh) to discuss.
 
 Although we will expect you to know how to use git, so it might it be better to learn how use it.
 We will try to handle the rest 😄
@@ -47,7 +47,7 @@ Not a mandate, but you should link to issues which the PRs resolve.
 PRs which do not modify any package code should add `[skip ci]` to their title.
 
 If your issue or PR doesn't receive response then you can get in touch
-on [discord](https://discord.gg/kETeDB3)
+on [discord](https://discord.gg/8akycDh)
 
 ### Typing
 

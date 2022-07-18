@@ -15,5 +15,5 @@ framework for building bots
 
 ## Contribution
 All contributions and ideas are welcomed!
-Join our [discord server](https://discord.gg/kETeDB3) for discussions.
+Join our [discord server](https://discord.gg/8akycDh) for discussions.
 We also have a [contribution guide](https://github.com/BytesToBits/Cordy/blob/master/.github/CONTRIBUTING.md) to help you get started
