@@ -94,6 +94,7 @@ class Route:
                     channel_id: int = ...,
                     guild_id: int = ...,
                     webhook_id: int = ...,
+                    user_id: int = ...,
                     webhook_token: str = ...) -> Endpoint:
         ...
 

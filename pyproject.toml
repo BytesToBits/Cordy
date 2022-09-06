@@ -41,6 +41,7 @@ docs = ["Sphinx", "furo"]
 [tool.pyright]
 include = ["cordy"]
 exclude = ["docs", ".venv/", ".git", "**/__pycache__", ".mypy_cache"]
+strictParameterNoneValue = false
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

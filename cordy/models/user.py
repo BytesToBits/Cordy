@@ -94,3 +94,4 @@ class BaseUser(Resource):
         self.flags = UserFlags(data.get("flags") or data.get("public_flags"))
 
         # self._http = http
+        return self

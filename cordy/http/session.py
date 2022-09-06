@@ -1,6 +1,9 @@
-from __future__ import annotations
+# type: ignore[no-any-return]
 
-from typing import final, TYPE_CHECKING
+from __future__ import annotations
+import json
+
+from typing import Annotated, final, TYPE_CHECKING
 from time import time
 
 from aiohttp import ClientSession
@@ -20,10 +23,16 @@ if TYPE_CHECKING:
     from ..auth import Token
     from ..util import Msg
     from .route import Endpoint
+    from ..types import User as UserP
 
 GATEWAY = Route("GET", "/gateway").with_params()
 GATEWAY_BOT = Route("GET", "/gateway/bot").with_params()
 POST_MSG = Route("POST", "/channels/{channel_id}/messages")
+
+USER_ME = Route("GET", "/users/@me").with_params()
+GET_USER = Route("GET", "/users/{user_id}")
+PATCH_ME = Route("PATCH", "/users/@me").with_params()
+
 
 @final
 class HTTPSession:
@@ -51,11 +60,12 @@ class HTTPSession:
         # We use a timer to pre-emptively avoid waits if they go beyond timeout
         # The logic is, failing early allows for a more responsive bot incase the request is ratelimited
         # due to any reason, with asyncio.wait_for we would wait for the entire period till timeout
+        # currently incomplete...
         while True:
             timer.start()
-            await self.global_limit.wait()
+            await self.global_limit.wait() # TODO: Needs timeout logic
             async with self.delayer.acquire(endp, timeout=timeout) as limit:
-                resp = await self.session._request(endp.method, endp.url, **kwargs)
+                resp = await self.session._request(endp.method, endp.url, **kwargs) # Timeout here too
                 hdrs = resp.headers
 
                 buc = hdrs.get("X-RateLimit-Bucket")
@@ -67,11 +77,13 @@ class HTTPSession:
 
                     if not is_global:
                         if ts:
-                            limit.delay_till(float(ts), buc)
+                            limit.delay_till(float(ts), buc) # this handles timeout
                     else:
+                        # TODO: Needs timeout logic
                         self.global_limit.clear()
                         now = time()
-                        self._loop.call_later(float(ts or now) - now, self.global_limit.set)
+                        delta = float(ts or now) - now
+                        self._loop.call_later(delta, self.global_limit.set)
                 else:
                     # discover route <-> bucket relation
                     if buc:
@@ -85,14 +97,33 @@ class HTTPSession:
 
     # why does pyright say the return type is Ret | None for these 3?
     # might disable pyright type checking in next related commit and turn on warn unused ignore in mypy
-    async def get_gateway(self) -> URL: # type: ignore[pyright]
+    async def get_gateway(self) -> URL:
         async with self.request(GATEWAY) as res:
             return URL((await res.json(loads=util.loads))["url"])
 
-    async def get_gateway_bot(self) -> Msg: # type: ignore[pyright]
+    async def get_gateway_bot(self) -> Msg:
         async with self.request(GATEWAY_BOT) as resp:
             ret: Msg = await resp.json(loads=util.loads)
             return ret
+
+    async def get_current_user(self) -> UserP:
+        async with self.request(USER_ME) as resp:
+            return await resp.json(loads=util.loads)
+
+    async def get_user(self, user_id: int) -> UserP:
+        async with self.request(GET_USER.with_params(user_id=user_id)) as resp:
+            return await resp.json(loads=util.loads) # type: ignore
+
+    async def patch_me(
+        self, *,
+        username: str = None,
+        avatar: Annotated[str | None, "Data URI for avatar"] = ... # type: ignore[assignment]
+    ) -> UserP | Msg:
+        data: dict[str, str | None] = {}
+        if username and isinstance(username, str): data["username"] = username
+        if avatar is not ... and (isinstance(avatar, str) or avatar is None): data["avatar"] = avatar
+        async with self.request(PATCH_ME, json=data) as resp:
+            return await resp.json(loads=util.loads)
 
     # NOTFORUSE
     async def send_message(self, channel_id: int | str, content: str) -> ClientResponse: # type: ignore[pyright]

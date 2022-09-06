@@ -456,6 +456,7 @@ class GateWay:
     async def send(self, data: Msg) -> None:
         logger.debug("Shard %s Sending: %s", self.shard_id, data)
         # todo: presence update
+        # todo: migrate encoding like decoding for easy switching to etf
         async with self._ratelimit.acquire(None):
             await self.ws.send_str(util.dumps(data))
 
