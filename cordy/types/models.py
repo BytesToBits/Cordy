@@ -57,12 +57,14 @@ class Overwrite(TypedDict):
                     "The denied permission bitset,"
                     " each set bit represents a denied permission"]
     
-class Emoji(TypedDict):
-    id: IntAsStr
-    name: str
-    roles: list[IntAsStr] | None
-    user: User | None
-    require_colons: bool | None
-    managed: bool | None
-    animated: bool | None
-    available: bool | None
+class TotalEmoji(TypedDict):
+    id: IntAsStr | None
+    name: str | None
+
+class Emoji(TotalEmoji, total=False):
+    roles: list[IntAsStr]
+    user: User
+    require_colons: bool
+    managed: bool
+    animated: bool
+    available: bool
