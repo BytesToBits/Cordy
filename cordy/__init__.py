@@ -7,5 +7,9 @@ from .models import *
 from .gateway import *
 from .runner import *
 
-__version__ = version("cordy.py")
+try:
+    __version__ = version("cordy.py")
+except:
+    __version__ = "0.2.dev0"
+
 del version
