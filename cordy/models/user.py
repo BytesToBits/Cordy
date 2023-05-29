@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cordy.http import HTTPSession
+# from cordy.http import HTTPSession
 
 from ..types import User as UserP
 from .flags import FrozenFlag as FF
@@ -81,7 +81,7 @@ class BaseUser(Resource):
     # _http: HTTPSession
 
     @classmethod
-    def from_data(cls, data: UserP, http: HTTPSession):
+    def from_data(cls, data: UserP):
         self = object.__new__(cls)
         Resource.__init__(self, data["id"])
         self.name = data["username"]
@@ -92,6 +92,4 @@ class BaseUser(Resource):
         self.banner = data.get("banner")
         self.accent_color = data.get("accent_color")
         self.flags = UserFlags(data.get("flags") or data.get("public_flags"))
-
-        # self._http = http
         return self

@@ -56,7 +56,7 @@ class Overwrite(TypedDict):
     deny: Annotated[IntAsStr,
                     "The denied permission bitset,"
                     " each set bit represents a denied permission"]
-    
+
 class TotalEmoji(TypedDict):
     id: IntAsStr | None
     name: str | None
